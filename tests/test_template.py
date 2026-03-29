@@ -154,3 +154,148 @@ class TestSkillTemplate:
             example_args="name=nginx",
         )
         assert "ANSIBLE_STDOUT_CALLBACK=json" in result
+
+    def test_renders_aap_section(self, render_template):
+        result = render_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "## Production Execution (AAP)" in result
+        assert "AAP_CONTROLLER_URL" in result
+        assert "AAP_CONTROLLER_TOKEN" in result
+        assert "aap_run.py" in result
+
+    def test_aap_section_contains_adhoc_example(self, render_template):
+        result = render_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "ad_hoc_commands" in result
+        assert "ansible.builtin.package" in result
+        assert "name=nginx state=present" in result
+
+    def test_aap_section_contains_job_template_launch(self, render_template):
+        result = render_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "job_templates" in result
+        assert "aap_run.py launch" in result
+
+    def test_aap_section_contains_status_check(self, render_template):
+        result = render_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx",
+        )
+        assert "aap_run.py status" in result
+
+    def test_cli_section_renamed(self, render_template):
+        result = render_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx",
+        )
+        assert "## Local Execution (CLI)" in result
+
+    def test_aap_module_name_interpolated(self, render_template):
+        result = render_template(
+            module_name="community.general.redis",
+            skill_name="redis",
+            short_description="Redis commands",
+            params=[],
+            examples="",
+            example_args="name=mykey",
+        )
+        assert '"module_name": "community.general.redis"' in result
+
+
+class TestAAPRunTemplate:
+    """Tests for the aap_run.py.j2 template."""
+
+    @pytest.fixture
+    def render_aap_template(self):
+        env = Environment(
+            loader=FileSystemLoader(str(TEMPLATE_DIR)),
+            keep_trailing_newline=True,
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+        template = env.get_template("aap_run.py.j2")
+
+        def _render(**kwargs):
+            return template.render(**kwargs)
+
+        return _render
+
+    def test_renders_module_name(self, render_aap_template):
+        result = render_aap_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Generic OS package manager",
+        )
+        assert 'MODULE = "ansible.builtin.package"' in result
+
+    def test_contains_adhoc_subcommand(self, render_aap_template):
+        result = render_aap_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+        )
+        assert "def cmd_adhoc" in result
+        assert "ad_hoc_commands" in result
+
+    def test_contains_launch_subcommand(self, render_aap_template):
+        result = render_aap_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+        )
+        assert "def cmd_launch" in result
+        assert "job_templates" in result
+
+    def test_contains_status_subcommand(self, render_aap_template):
+        result = render_aap_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+        )
+        assert "def cmd_status" in result
+
+    def test_uses_stdlib_only(self, render_aap_template):
+        result = render_aap_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+        )
+        assert "import urllib.request" in result
+        assert "import json" in result
+        assert "import requests" not in result
+
+    def test_reads_env_vars(self, render_aap_template):
+        result = render_aap_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+        )
+        assert "AAP_CONTROLLER_URL" in result
+        assert "AAP_CONTROLLER_TOKEN" in result
+        assert "AAP_VERIFY_SSL" in result

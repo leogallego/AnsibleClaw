@@ -15,7 +15,19 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from ansibleclaw.config import BUILTINS_DIR, INSTALL_PATHS, SKILLS_DIR, TEMPLATE_DIR, TEMPLATE_PATH
+from ansibleclaw.config import (
+    AAP_CONTROLLER_TOKEN,
+    AAP_CONTROLLER_URL,
+    AAP_DEFAULT_CREDENTIAL,
+    AAP_DEFAULT_INVENTORY,
+    AAP_DEFAULT_ORGANIZATION,
+    AAP_VERIFY_SSL,
+    BUILTINS_DIR,
+    INSTALL_PATHS,
+    SKILLS_DIR,
+    TEMPLATE_DIR,
+    TEMPLATE_PATH,
+)
 from ansibleclaw.core.packager import package_skill_zip_bytes
 from ansibleclaw.core.parser import (
     AnsibleDocError,
@@ -280,3 +292,93 @@ async def generate_skill(
     )
 
 
+# --- AAP ---
+
+def _aap_env_info() -> dict:
+    """Gather AAP environment variable state."""
+    return {
+        "url": AAP_CONTROLLER_URL,
+        "token": AAP_CONTROLLER_TOKEN,
+        "verify_ssl": AAP_VERIFY_SSL,
+        "default_inventory": AAP_DEFAULT_INVENTORY,
+        "default_credential": AAP_DEFAULT_CREDENTIAL,
+        "default_organization": AAP_DEFAULT_ORGANIZATION,
+    }
+
+
+def _aap_is_configured() -> bool:
+    return bool(AAP_CONTROLLER_URL and AAP_CONTROLLER_TOKEN)
+
+
+def _aap_ping() -> bool:
+    """Try to reach the AAP Controller /api/v2/ping/ endpoint."""
+    if not _aap_is_configured():
+        return False
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    url = f"{AAP_CONTROLLER_URL.rstrip('/')}/api/v2/ping/"
+    headers = {"Authorization": f"Bearer {AAP_CONTROLLER_TOKEN}"}
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    ctx = None
+    if not AAP_VERIFY_SSL:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=10):
+            return True
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+        return False
+
+
+@app.middleware("http")
+async def inject_aap_status(request: Request, call_next):
+    """Make AAP status available to all templates via request.state."""
+    request.state.aap_configured = _aap_is_configured()
+    request.state.aap_connected = False
+    return await call_next(request)
+
+
+# Override template context to include AAP status in all pages
+_orig_template_response = TEMPLATES.TemplateResponse
+
+
+def _patched_template_response(request_or_name, name_or_ctx=None, context=None, **kwargs):
+    """Inject aap_configured/aap_connected into every template context."""
+    if isinstance(request_or_name, Request):
+        request = request_or_name
+        ctx = name_or_ctx if isinstance(name_or_ctx, dict) else (context or {})
+        template_name = name_or_ctx if isinstance(name_or_ctx, str) else ""
+    else:
+        template_name = request_or_name
+        ctx = name_or_ctx or context or {}
+        request = ctx.get("request")
+
+    aap_configured = getattr(request.state, "aap_configured", False) if request else False
+    ctx.setdefault("aap_configured", aap_configured)
+    ctx.setdefault("aap_connected", False)
+
+    return _orig_template_response(request, template_name, ctx, **kwargs)
+
+
+TEMPLATES.TemplateResponse = _patched_template_response
+
+
+@app.get("/aap", response_class=HTMLResponse)
+async def aap_page(request: Request):
+    connected = _aap_ping() if _aap_is_configured() else False
+    return TEMPLATES.TemplateResponse(request, "aap.html", {
+        "page": "aap",
+        "aap_env": _aap_env_info(),
+        "aap_configured": _aap_is_configured(),
+        "aap_connected": connected,
+    })
+
+
+@app.get("/aap/ping", response_class=HTMLResponse)
+async def aap_ping():
+    if _aap_ping():
+        return HTMLResponse('<span class="success">Connection successful</span>')
+    return HTMLResponse('<span class="error">Connection failed</span>')

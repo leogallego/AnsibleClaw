@@ -20,6 +20,7 @@ This guide covers everything you need to install, configure, and use AnsibleClaw
 - [Built-In Skills](#built-in-skills)
 - [Inventory Setup](#inventory-setup)
 - [End-to-End Workflows](#end-to-end-workflows)
+- [AAP Integration](#aap-integration)
 - [Configuration](#configuration)
 - [Troubleshooting](#troubleshooting)
 
@@ -82,7 +83,8 @@ A SKILL.md is a markdown file with YAML frontmatter that teaches an AI agent how
 
 - Module description and when to use it
 - Parameters table (name, type, required, default, choices)
-- Ready-to-use `ansible` CLI examples
+- **Local Execution (CLI)** -- Ready-to-use `ansible` CLI examples for development and testing
+- **Production Execution (AAP)** -- AAP Controller API examples and `aap_run.py` helper usage for governed production runs
 - Safety guidance (dry-run, become/sudo, idempotency)
 - Inventory portability instructions
 
@@ -329,9 +331,22 @@ Teaches an AI agent to generate new skills on-demand using `ansibleclaw generate
 - When to generate vs. using the manager skill directly
 - All output targets (project, Cursor, Claude, custom)
 - The self-expansion workflow: search -> generate -> read -> use
-- What each generated SKILL.md contains
+- What each generated skill package contains (dual-mode SKILL.md + aap_run.py helper)
 
 **Runtime dependency:** `ansibleclaw` (this is the only skill that requires the build tool)
+
+### ansible_aap_guide -- The Production Guide
+
+Teaches an AI agent how to use Ansible Automation Platform as the production execution backend. Covers:
+
+- When to use AAP mode vs. direct CLI
+- Environment variable setup (`AAP_CONTROLLER_URL`, `AAP_CONTROLLER_TOKEN`)
+- Key AAP concepts: inventories, credentials, job templates, organizations
+- How to discover available resources via the AAP API
+- Decision tree for choosing CLI vs. AAP execution
+- Common troubleshooting (SSL errors, auth failures)
+
+**Runtime dependency:** Python 3 (stdlib only)
 
 ### ansible_package -- OOTB Showcase
 
@@ -460,6 +475,81 @@ Every developer on the team now has these skills available in Cursor.
 
 ---
 
+## AAP Integration
+
+Generated skills include **dual-mode execution**: local CLI for development/testing, and AAP Controller API for governed production runs. This section covers how to set up and use AAP mode.
+
+### Setup
+
+Set these environment variables to enable AAP mode:
+
+```bash
+export AAP_CONTROLLER_URL="https://aap.example.com"
+export AAP_CONTROLLER_TOKEN="your-oauth2-token"
+export AAP_VERIFY_SSL="true"                    # set to "false" for self-signed certs
+export AAP_DEFAULT_INVENTORY="Production"       # optional: default inventory name or ID
+export AAP_DEFAULT_CREDENTIAL="Machine SSH Key" # optional: default credential name or ID
+```
+
+Generate a personal access token in the AAP/AWX web UI under **Users** > your user > **Tokens**.
+
+### How It Works
+
+When `AAP_CONTROLLER_URL` is set, each generated skill's "Production Execution (AAP)" section becomes active. The AI agent uses `scripts/aap_run.py` (generated alongside every skill) to interact with the AAP Controller REST API.
+
+The helper script uses only Python stdlib (`urllib` + `json`) -- no additional pip install required.
+
+### Using aap_run.py
+
+Every generated skill includes `scripts/aap_run.py` with three subcommands:
+
+**Ad-hoc command** (equivalent to `ansible <hosts> -m <module> -a "<args>"`):
+
+```bash
+python3 scripts/aap_run.py adhoc "name=nginx state=present" \
+  --inventory "Production" --credential "Machine SSH Key"
+```
+
+**Launch a job template** (equivalent to `ansible-playbook`):
+
+```bash
+python3 scripts/aap_run.py launch "deploy-webservers" \
+  --extra-vars '{"version": "2.0"}' --limit "web1.example.com"
+```
+
+**Check job status**:
+
+```bash
+python3 scripts/aap_run.py status 42
+```
+
+All commands output structured JSON for AI agent parsing.
+
+### Checking Prerequisites
+
+Run `scripts/check.sh` to verify both CLI and AAP prerequisites:
+
+```bash
+bash scripts/check.sh
+```
+
+This checks for `ansible` CLI tools, and if `AAP_CONTROLLER_URL` is set, also tests connectivity to the AAP Controller via `/api/v2/ping/`.
+
+### Web Dashboard AAP Page
+
+When running `ansibleclaw ui`, the AAP page (`/aap`) shows:
+
+- Connection status (connected / configured / not configured)
+- Environment variable status (set / not set)
+- Setup instructions
+- A connectivity test button
+
+### AWX vs AAP Controller
+
+Both AWX (free upstream) and Red Hat AAP Controller (commercial) share the same REST API (`/api/v2/`). AnsibleClaw supports both interchangeably -- develop against AWX for free, deploy through AAP Controller for enterprise governance.
+
+---
+
 ## Configuration
 
 AnsibleClaw reads configuration from environment variables with sensible defaults.
@@ -468,6 +558,12 @@ AnsibleClaw reads configuration from environment variables with sensible default
 |----------|---------|-------------|
 | `ANSIBLECLAW_SKILLS_DIR` | `<project>/skills/` | Where generated skills are written |
 | `ANSIBLECLAW_INVENTORY` | `<project>/inventory/hosts.yml` | Path to the Ansible inventory file |
+| `AAP_CONTROLLER_URL` | *(empty)* | Base URL of AAP/AWX controller |
+| `AAP_CONTROLLER_TOKEN` | *(empty)* | OAuth2 bearer token for AAP |
+| `AAP_VERIFY_SSL` | `true` | Set to `false` for self-signed certs |
+| `AAP_DEFAULT_INVENTORY` | *(empty)* | Default inventory name or ID for AAP ad-hoc commands |
+| `AAP_DEFAULT_CREDENTIAL` | *(empty)* | Default credential name or ID for AAP |
+| `AAP_DEFAULT_ORGANIZATION` | `Default` | Organization name in AAP |
 
 **Example:**
 

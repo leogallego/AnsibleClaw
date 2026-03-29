@@ -69,21 +69,41 @@ flowchart TB
     subgraph buildTime ["Build-Time (ansibleclaw)"]
         GenCLI["ansibleclaw generate\n'community.general.redis'"]
         GenCLI --> Parser["core/parser.py\n(ansible-doc --json)"]
-        Parser --> Template["skill_template.md\n(Jinja2)"]
-        Template --> Output["SKILL.md\n(generated)"]
+        Parser --> Templates["Dual-mode templates\n(CLI + AAP sections)"]
+        Templates --> OutputPkg["Skill Package"]
     end
 
-    subgraph runtime ["Runtime (ansible-core only)"]
-        Agent["AI Agent\n(Cursor / Claude Code)"]
-        Agent -->|"reads"| SkillMD["SKILL.md"]
-        SkillMD -->|"instructs"| Agent
-        Agent -->|"ansible webservers -m apt\n-a 'name=nginx state=present' -b"| AnsibleCLI["ansible CLI\n(from ansible-core)"]
-        AnsibleCLI -->|SSH| Hosts["Remote Hosts"]
-        Hosts -->|result| AnsibleCLI
-        AnsibleCLI -->|"JSON output"| Agent
+    subgraph skillPkg ["Generated Skill Package"]
+        SkillMD["SKILL.md\n(CLI + AAP dual-mode)"]
+        RunSH["scripts/run.sh"]
+        AAPRun["scripts/aap_run.py"]
+        CheckSH["scripts/check.sh"]
+        Playbook["assets/playbook.yml"]
     end
 
-    Output -->|"copy / --install"| SkillMD
+    subgraph runtimeCLI ["Runtime: Dev/Test (CLI mode)"]
+        AgentCLI["AI Agent"]
+        AgentCLI -->|"reads CLI section"| AnsibleCLI["ansible CLI\n(from ansible-core)"]
+        AnsibleCLI -->|SSH| HostsCLI["Remote Hosts"]
+        HostsCLI -->|result| AnsibleCLI
+        AnsibleCLI -->|"JSON output"| AgentCLI
+    end
+
+    subgraph runtimeAAP ["Runtime: Production (AAP mode)"]
+        AgentAAP["AI Agent"]
+        AgentAAP -->|"reads AAP section"| AAPHelper["scripts/aap_run.py"]
+        AAPHelper -->|"REST API /api/v2/"| Controller["AAP Controller"]
+        Controller -->|"Execution Environment"| HostsAAP["Remote Hosts"]
+        HostsAAP -->|result| Controller
+        Controller -->|"JSON output"| AAPHelper
+        AAPHelper -->|JSON| AgentAAP
+    end
+
+    OutputPkg --> SkillMD
+    OutputPkg --> RunSH
+    OutputPkg --> AAPRun
+    OutputPkg --> CheckSH
+    OutputPkg --> Playbook
 ```
 
 ## Skill Distribution Flow
@@ -97,7 +117,7 @@ flowchart LR
     Gen -->|"--output /path/"| CustomDir["/path/ansible_redis/SKILL.md"]
 ```
 
-## Operational Workflow
+## Operational Workflow (CLI Mode)
 
 ```mermaid
 sequenceDiagram
@@ -118,6 +138,35 @@ sequenceDiagram
     Hosts-->>Ansible: result
     Ansible-->>Agent: JSON output
     Agent-->>User: "Redis configured on 3 hosts. Here's what changed..."
+```
+
+## Operational Workflow (AAP Mode)
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent as AI Agent
+    participant AAPRun as aap_run.py
+    participant AAP as AAP Controller
+    participant EE as Execution Environment
+    participant Hosts as Remote Hosts
+
+    User->>Agent: "Set up Redis on my cluster"
+    Note over Agent: Agent reads SKILL.md AAP section
+    Note over Agent: AAP_CONTROLLER_URL is set - using AAP mode
+    Agent->>AAPRun: aap_run.py adhoc "..." --inventory Production
+    AAPRun->>AAP: POST /api/v2/ad_hoc_commands/
+    AAP->>EE: Launch ad-hoc command
+    EE->>Hosts: Execute via SSH (managed credentials)
+    Hosts-->>EE: result
+    EE-->>AAP: Job complete
+    loop Poll until terminal state
+        AAPRun->>AAP: GET /api/v2/jobs/{id}/
+    end
+    AAPRun->>AAP: GET /api/v2/jobs/{id}/stdout/
+    AAP-->>AAPRun: Job output
+    AAPRun-->>Agent: JSON output
+    Agent-->>User: "Redis configured on 3 hosts via AAP. Job ID: 42."
 ```
 
 ## Component Specs
@@ -190,6 +239,7 @@ The heart of the factory. Wraps `ansible-doc` to extract structured module infor
 
 - `SKILLS_DIR`: default output for generated skills (default: `skills/`)
 - `INSTALL_PATHS`: platform name -> skill directory mapping (`cursor` -> `~/.cursor/skills/`, `claude` -> `~/.claude/skills/`)
+- AAP Controller settings: `AAP_CONTROLLER_URL`, `AAP_CONTROLLER_TOKEN`, `AAP_VERIFY_SSL`, `AAP_DEFAULT_INVENTORY`, `AAP_DEFAULT_CREDENTIAL`, `AAP_DEFAULT_ORGANIZATION`
 - Reads from environment variables with sensible defaults
 
 ### 5. `ansible.cfg` -- Ansible Defaults
@@ -206,7 +256,7 @@ This means: any `ansible` command run from the AnsibleClaw project directory aut
 
 ### 6. Built-In Skills
 
-Three built-in SKILL.md files that teach the AI to use standard Ansible tooling:
+Four built-in SKILL.md files that teach the AI to use standard Ansible tooling:
 
 **`skills/ansible_manager/SKILL.md`** -- The Executive
 
@@ -220,6 +270,7 @@ Teaches the AI to execute any Ansible module using the standard `ansible` CLI:
 - Safety: always `--check --diff` first for destructive operations
 - **Inventory portability section**: when working outside the AnsibleClaw project, use `-i /path/to/inventory`, set `ANSIBLE_INVENTORY` env var, or use `/etc/ansible/hosts`
 - Notes that `ansible.cfg` in the project sets JSON callback + default inventory automatically
+- **Production Execution (AAP)** section: ad-hoc commands via AAP API, job template launch, CLI-to-AAP mapping table
 
 **`skills/ansible_search/SKILL.md`** -- The Scout
 
@@ -240,21 +291,36 @@ Teaches the AI to generate new specialized skills on-demand:
 - When to generate (complex parameters, repeated use) vs. just using the manager skill
 - The self-expansion workflow: search -> generate -> read new SKILL.md -> use
 
-Note: This is the one skill that requires `ansibleclaw` to be installed. The other two only need `ansible-core`.
+Note: This is the one skill that requires `ansibleclaw` to be installed. The other three only need `ansible-core` or Python stdlib.
 
-### 7. `library/templates/skill_template.md` -- Skill Blueprint
+**`builtins/ansible_aap_guide/SKILL.md`** -- The Production Guide
 
-Jinja2 template rendered by `ansibleclaw generate`. Produces a SKILL.md that references `ansible` CLI commands (not `ansibleclaw`):
+Teaches the AI how to use AAP as the production execution backend:
 
+- When to use AAP mode vs. direct CLI (decision tree based on `AAP_CONTROLLER_URL`)
+- Environment variable setup and token generation
+- Key AAP concepts: inventories, credentials, job templates, organizations
+- API discovery patterns for available resources
+- Common troubleshooting (SSL, auth, inventory errors)
+
+### 7. `src/ansibleclaw/templates/` -- Skill Blueprint
+
+Templates rendered by `ansibleclaw generate`. Produces a dual-mode skill package:
+
+**`skill_template.md`** -- SKILL.md template:
 - Frontmatter: `name`, `description` (from ansible-doc short_description)
 - Module purpose and when to use it
 - Parameters table (name, type, required, default, choices, description)
-- Usage examples using `ansible` CLI syntax:
-  ```
-  ansible <hosts> -m <module> -a "<example_args>" -b --check --diff
-  ```
+- **Local Execution (CLI)** section with `ansible` CLI examples
+- **Production Execution (AAP)** section with ad-hoc, job template, and `aap_run.py` examples
 - **Inventory portability section**: documents `-i`, `ANSIBLE_INVENTORY`, and `ansible.cfg` options
 - Safety notes: `--check`, `--diff`, become requirements, idempotency
+
+**`aap_run.py.j2`** -- AAP Controller helper script template:
+- Python 3 stdlib only (`urllib.request` + `json`)
+- Subcommands: `adhoc` (ad-hoc module execution), `launch` (job template), `status` (check job)
+- Handles launch, poll, and output retrieval cycle
+- Reads AAP credentials from environment variables at runtime
 
 ### 8. OOTB Showcase: `ansible.builtin.package`
 

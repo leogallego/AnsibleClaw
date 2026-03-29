@@ -87,6 +87,11 @@ def _write_skill_package(output_dir: Path, metadata: dict) -> None:
         script_path.write_text(template.render(**ctx))
         script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
+    aap_template = env.get_template("aap_run.py.j2")
+    aap_path = scripts_dir / "aap_run.py"
+    aap_path.write_text(aap_template.render(**ctx))
+    aap_path.chmod(aap_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
     assets_dir = output_dir / "assets"
     assets_dir.mkdir(exist_ok=True)
 
@@ -178,7 +183,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
 
     _write_skill_package(output_dir, metadata)
     print(f"Skill generated: {output_dir}/")
-    print(f"  SKILL.md, scripts/run.sh, scripts/check.sh, assets/playbook.yml")
+    print(f"  SKILL.md, scripts/run.sh, scripts/check.sh, scripts/aap_run.py, assets/playbook.yml")
 
     if getattr(args, "zip", False):
         from ansibleclaw.core.packager import package_skill_zip

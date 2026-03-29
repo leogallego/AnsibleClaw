@@ -107,6 +107,48 @@ class TestCmdGenerate:
         assert "## Parameters" in content
         assert "## Inventory" in content
 
+    def test_generates_aap_run_script(self, tmp_path, sample_module_doc_json):
+        """Generate pipeline produces scripts/aap_run.py."""
+        from ansibleclaw.cli import cmd_generate
+        import argparse
+
+        with patch("ansibleclaw.core.parser._run_ansible_doc", return_value=sample_module_doc_json):
+            args = argparse.Namespace(
+                module="ansible.builtin.package",
+                install=None,
+                output=str(tmp_path),
+            )
+            cmd_generate(args)
+
+        skill_dir = tmp_path / "ansible_package"
+        aap_script = skill_dir / "scripts" / "aap_run.py"
+        assert aap_script.exists()
+
+        content = aap_script.read_text()
+        assert 'MODULE = "ansible.builtin.package"' in content
+        assert "ad_hoc_commands" in content
+        assert "job_templates" in content
+        assert aap_script.stat().st_mode & 0o111, "aap_run.py should be executable"
+
+    def test_skill_md_has_aap_section(self, tmp_path, sample_module_doc_json):
+        """Generated SKILL.md includes the AAP production execution section."""
+        from ansibleclaw.cli import cmd_generate
+        import argparse
+
+        with patch("ansibleclaw.core.parser._run_ansible_doc", return_value=sample_module_doc_json):
+            args = argparse.Namespace(
+                module="ansible.builtin.package",
+                install=None,
+                output=str(tmp_path),
+            )
+            cmd_generate(args)
+
+        skill_dir = tmp_path / "ansible_package"
+        content = (skill_dir / "SKILL.md").read_text()
+        assert "## Production Execution (AAP)" in content
+        assert "## Local Execution (CLI)" in content
+        assert "AAP_CONTROLLER_URL" in content
+
     def test_install_flag(self, tmp_path, sample_module_doc_json):
         """Generate with --install writes to the platform directory."""
         from ansibleclaw.cli import cmd_generate

@@ -38,6 +38,7 @@ if [[ -n "$COLLECTION" ]]; then
 fi
 
 echo
+echo "--- CLI Mode ---"
 echo "Results: $PASS passed, $FAIL failed"
 
 if [[ $FAIL -gt 0 ]]; then
@@ -50,5 +51,55 @@ if [[ $FAIL -gt 0 ]]; then
     echo "To fix:"
     echo "  pip install ansible-core        # install Ansible"
 {% endif %}
+fi
+
+echo
+echo "--- AAP Mode ---"
+
+AAP_PASS=0
+AAP_FAIL=0
+
+aap_check() {
+    local label="$1"
+    shift
+    if "$@" > /dev/null 2>&1; then
+        echo "  [PASS] $label"
+        AAP_PASS=$((AAP_PASS + 1))
+    else
+        echo "  [FAIL] $label"
+        AAP_FAIL=$((AAP_FAIL + 1))
+    fi
+}
+
+aap_check "python3 is installed" command -v python3
+
+if [[ -n "${AAP_CONTROLLER_URL:-}" ]]; then
+    echo "  [INFO] AAP_CONTROLLER_URL = ${AAP_CONTROLLER_URL}"
+    aap_check "AAP_CONTROLLER_TOKEN is set" test -n "${AAP_CONTROLLER_TOKEN:-}"
+
+    VERIFY_FLAG=""
+    if [[ "${AAP_VERIFY_SSL:-true}" == "false" ]]; then
+        VERIFY_FLAG="--insecure"
+    fi
+    aap_check "AAP Controller is reachable" \
+        bash -c "curl -sf ${VERIFY_FLAG} -H 'Authorization: Bearer ${AAP_CONTROLLER_TOKEN:-}' '${AAP_CONTROLLER_URL}/api/v2/ping/' > /dev/null 2>&1"
+
+    aap_check "scripts/aap_run.py exists" test -f "$(dirname "$0")/aap_run.py"
+else
+    echo "  [SKIP] AAP_CONTROLLER_URL not set -- AAP mode not configured"
+fi
+
+echo
+echo "AAP Results: $AAP_PASS passed, $AAP_FAIL failed"
+
+if [[ $FAIL -gt 0 && $AAP_FAIL -gt 0 ]]; then
+    echo
+    echo "Neither CLI nor AAP mode is fully operational."
     exit 1
+elif [[ $FAIL -gt 0 ]]; then
+    echo
+    echo "CLI mode has failures, but AAP mode is available."
+elif [[ $AAP_FAIL -gt 0 && -n "${AAP_CONTROLLER_URL:-}" ]]; then
+    echo
+    echo "AAP mode has failures, but CLI mode is available."
 fi

@@ -36,6 +36,7 @@
             <li><a href="/skills" {% if page == "skills" %}aria-current="page"{% endif %}>Skills</a></li>
             <li><a href="/search" {% if page == "search" %}aria-current="page"{% endif %}>Search</a></li>
             <li><a href="/generate" {% if page == "generate" %}aria-current="page"{% endif %}>Generate</a></li>
+            <li><a href="/aap" {% if page == "aap" %}aria-current="page"{% endif %}>AAP {% if aap_connected %}<span class="aap-status connected" title="AAP Connected">&#9679;</span>{% elif aap_configured %}<span class="aap-status configured" title="AAP Configured (not verified)">&#9679;</span>{% endif %}</a></li>
             <li>
                 <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle theme">
                     <span class="theme-icon"></span>

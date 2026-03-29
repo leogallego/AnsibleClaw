@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title_suffix %} - AAP Configuration{% endblock %}
+
+{% block content %}
+<hgroup>
+    <h2>Ansible Automation Platform (AAP)</h2>
+    <p>Configuration status for AAP Controller integration</p>
+</hgroup>
+
+<article>
+    <header>
+        <strong>Connection Status</strong>
+    </header>
+    {% if aap_connected %}
+    <p class="success"><strong>Connected</strong> &mdash; AAP Controller is reachable and authenticated.</p>
+    {% elif aap_configured %}
+    <p style="color: var(--ac-warning);"><strong>Configured</strong> &mdash; Environment variables are set but connectivity has not been verified. Check the URL and token.</p>
+    {% else %}
+    <p class="error"><strong>Not Configured</strong> &mdash; Set the environment variables below to enable AAP mode.</p>
+    {% endif %}
+</article>
+
+<article>
+    <header>
+        <strong>Environment Variables</strong>
+    </header>
+    <table class="aap-env-table">
+        <thead>
+            <tr>
+                <th>Variable</th>
+                <th>Status</th>
+                <th>Value</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>AAP_CONTROLLER_URL</code></td>
+                <td>{% if aap_env.url %}<span class="success">Set</span>{% else %}<span class="error">Not set</span>{% endif %}</td>
+                <td class="aap-env-value">{{ aap_env.url or "—" }}</td>
+            </tr>
+            <tr>
+                <td><code>AAP_CONTROLLER_TOKEN</code></td>
+                <td>{% if aap_env.token %}<span class="success">Set</span>{% else %}<span class="error">Not set</span>{% endif %}</td>
+                <td>{% if aap_env.token %}<span class="aap-env-masked">••••••{{ aap_env.token[-4:] }}</span>{% else %}—{% endif %}</td>
+            </tr>
+            <tr>
+                <td><code>AAP_VERIFY_SSL</code></td>
+                <td><span class="success">Set</span></td>
+                <td class="aap-env-value">{{ "true" if aap_env.verify_ssl else "false" }}</td>
+            </tr>
+            <tr>
+                <td><code>AAP_DEFAULT_INVENTORY</code></td>
+                <td>{% if aap_env.default_inventory %}<span class="success">Set</span>{% else %}<span style="color: var(--ac-text-muted);">Optional</span>{% endif %}</td>
+                <td class="aap-env-value">{{ aap_env.default_inventory or "—" }}</td>
+            </tr>
+            <tr>
+                <td><code>AAP_DEFAULT_CREDENTIAL</code></td>
+                <td>{% if aap_env.default_credential %}<span class="success">Set</span>{% else %}<span style="color: var(--ac-text-muted);">Optional</span>{% endif %}</td>
+                <td class="aap-env-value">{{ aap_env.default_credential or "—" }}</td>
+            </tr>
+            <tr>
+                <td><code>AAP_DEFAULT_ORGANIZATION</code></td>
+                <td><span class="success">Set</span></td>
+                <td class="aap-env-value">{{ aap_env.default_organization }}</td>
+            </tr>
+        </tbody>
+    </table>
+</article>
+
+<article>
+    <header>
+        <strong>Setup Instructions</strong>
+    </header>
+    <p>Set these environment variables before starting AnsibleClaw to enable AAP mode:</p>
+    <pre><code>export AAP_CONTROLLER_URL="https://aap.example.com"
+export AAP_CONTROLLER_TOKEN="your-oauth2-token"
+export AAP_VERIFY_SSL="true"
+export AAP_DEFAULT_INVENTORY="Production"
+export AAP_DEFAULT_CREDENTIAL="Machine SSH Key"</code></pre>
+    <p>Generate a token in the AAP/AWX web UI under <strong>Users</strong> &rarr; your user &rarr; <strong>Tokens</strong>.</p>
+    <p>Once configured, all generated skills will include a <strong>Production Execution (AAP)</strong> section
+    with API examples and an <code>aap_run.py</code> helper script.</p>
+</article>
+
+{% if aap_connected %}
+<article>
+    <header>
+        <strong>Quick Test</strong>
+    </header>
+    <button hx-get="/aap/ping" hx-target="#ping-result" hx-indicator="#ping-spinner">
+        Test Connection
+    </button>
+    <span id="ping-spinner" class="htmx-indicator">Testing...</span>
+    <div id="ping-result" style="margin-top: 0.5rem;"></div>
+</article>
+{% endif %}
+{% endblock %}

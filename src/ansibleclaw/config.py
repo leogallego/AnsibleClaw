@@ -19,3 +19,12 @@ INSTALL_PATHS: dict[str, Path] = {
     "cursor": Path.home() / ".cursor" / "skills",
     "claude": Path.home() / ".claude" / "skills",
 }
+
+# AAP Controller settings (read from environment, used by web UI and builtins;
+# generated skills read these at runtime independently).
+AAP_CONTROLLER_URL: str = os.environ.get("AAP_CONTROLLER_URL", "")
+AAP_CONTROLLER_TOKEN: str = os.environ.get("AAP_CONTROLLER_TOKEN", "")
+AAP_VERIFY_SSL: bool = os.environ.get("AAP_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
+AAP_DEFAULT_INVENTORY: str = os.environ.get("AAP_DEFAULT_INVENTORY", "")
+AAP_DEFAULT_CREDENTIAL: str = os.environ.get("AAP_DEFAULT_CREDENTIAL", "")
+AAP_DEFAULT_ORGANIZATION: str = os.environ.get("AAP_DEFAULT_ORGANIZATION", "Default")

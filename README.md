@@ -57,23 +57,25 @@ Generated skills are portable: copy them into `~/.cursor/skills/`, `~/.claude/sk
 
 ## Generated Skill Package
 
-Each generated skill is a complete [Agent Skills](https://agentskill.sh/readme) package:
+Each generated skill is a complete [Agent Skills](https://agentskill.sh/readme) package with dual-mode execution (CLI + AAP):
 
 ```
 ansible_apt/
-├── SKILL.md              # Main instructions for the AI agent
+├── SKILL.md              # Main instructions (CLI + AAP dual-mode)
 ├── scripts/
-│   ├── run.sh            # Wrapper script (dry-run by default, --apply to execute)
-│   └── check.sh          # Prerequisite validator (ansible installed? module available?)
+│   ├── run.sh            # CLI wrapper (dry-run by default, --apply to execute)
+│   ├── check.sh          # Prerequisite validator (CLI + AAP connectivity)
+│   └── aap_run.py        # AAP Controller API helper (Python stdlib only)
 └── assets/
     └── playbook.yml      # Ready-to-use Ansible playbook
 ```
 
 | File | Purpose | Dependency |
 |------|---------|------------|
-| `SKILL.md` | Agent reads this to learn module parameters, usage, and safety rules | None |
+| `SKILL.md` | Agent reads this to learn module parameters, CLI usage, and AAP API usage | None |
 | `scripts/run.sh` | Wraps `ansible` CLI with sane defaults and safe dry-run mode | `ansible-core` |
-| `scripts/check.sh` | Validates that ansible and the module/collection are available | `ansible-core` |
+| `scripts/check.sh` | Validates CLI and AAP prerequisites | `ansible-core`, `curl` |
+| `scripts/aap_run.py` | Launches ad-hoc commands and job templates via AAP Controller API | Python 3 (stdlib) |
 | `assets/playbook.yml` | Ansible playbook with example tasks for the module | `ansible-core` |
 
 ## CLI Reference
@@ -159,9 +161,10 @@ These ship inside the `ansible-claw` package and are always available -- no repo
 
 | Skill | Purpose | Runtime Dependency |
 |-------|---------|-------------------|
-| `ansible_manager` | Teaches AI to run any Ansible module via `ansible` CLI | `ansible-core` |
+| `ansible_manager` | Teaches AI to run any Ansible module via CLI or AAP | `ansible-core` |
 | `ansible_search` | Teaches AI to discover modules via `ansible-doc` | `ansible-core` |
-| `ansible_skills_factory` | Teaches AI to generate new skills on-demand | `ansibleclaw` |
+| `ansible_skills_factory` | Teaches AI to generate new dual-mode skills on-demand | `ansibleclaw` |
+| `ansible_aap_guide` | Teaches AI how to use AAP as the production execution platform | Python 3 (stdlib) |
 
 ## Dependencies
 
@@ -171,6 +174,31 @@ These ship inside the `ansible-claw` package and are always available -- no repo
 | With web dashboard | `pip install "ansible-claw[ui]"` |
 | With dev tools | `pip install "ansible-claw[dev]"` |
 | Runtime (on target) | `ansible-core` only |
+
+## AAP Integration (Production Execution)
+
+Generated skills include dual-mode execution: local CLI for development/testing, and AAP Controller API for governed production runs. Set these environment variables to enable AAP mode:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AAP_CONTROLLER_URL` | yes | Base URL of the AAP/AWX controller |
+| `AAP_CONTROLLER_TOKEN` | yes | OAuth2 bearer token |
+| `AAP_VERIFY_SSL` | no | Set to `false` for self-signed certs (default: `true`) |
+| `AAP_DEFAULT_INVENTORY` | no | Default inventory name or ID |
+| `AAP_DEFAULT_CREDENTIAL` | no | Default credential name or ID |
+| `AAP_DEFAULT_ORGANIZATION` | no | Organization name (default: `Default`) |
+
+When these are set, each skill's `scripts/aap_run.py` can execute modules through AAP:
+
+```bash
+# Ad-hoc command via AAP
+python3 scripts/aap_run.py adhoc "name=nginx state=present" --inventory Production --credential "SSH Key"
+
+# Launch a job template
+python3 scripts/aap_run.py launch "deploy-webservers" --extra-vars '{"version": "2.0"}'
+```
+
+Compatible with both AWX (free upstream) and Red Hat AAP Controller (commercial).
 
 ## Configuration
 
@@ -189,13 +217,15 @@ AnsibleClaw/
 │   │   ├── parser.py          # ansible-doc scraping + extraction
 │   │   └── packager.py        # ZIP packaging for skill distribution
 │   ├── builtins/              # Built-in skills (shipped in wheel)
-│   │   ├── ansible_manager/   # General-purpose Ansible executor
+│   │   ├── ansible_manager/   # General-purpose Ansible executor (CLI + AAP)
 │   │   ├── ansible_search/    # Module discovery via ansible-doc
-│   │   └── ansible_skills_factory/  # On-demand skill generation
+│   │   ├── ansible_skills_factory/  # On-demand skill generation
+│   │   └── ansible_aap_guide/ # AAP integration guide
 │   ├── templates/             # Jinja2 skill blueprints (shipped in wheel)
-│   │   ├── skill_template.md  # SKILL.md template
-│   │   ├── run.sh.j2          # Wrapper script template
-│   │   ├── check.sh.j2        # Prerequisite checker template
+│   │   ├── skill_template.md  # SKILL.md template (dual-mode: CLI + AAP)
+│   │   ├── run.sh.j2          # CLI wrapper script template
+│   │   ├── check.sh.j2        # Prerequisite checker template (CLI + AAP)
+│   │   ├── aap_run.py.j2      # AAP Controller API helper template
 │   │   └── playbook.yml.j2    # Ansible playbook template
 │   └── web/                   # Optional web dashboard (FastAPI + HTMX)
 │       ├── app.py             # Routes (including ZIP download)

@@ -78,14 +78,38 @@ ansibleclaw generate "community.general.redis" --output /path/to/skills/
 
 ## What Gets Generated
 
-Each generated SKILL.md contains:
+Each generated skill package contains:
+
+```
+skills/ansible_redis/
+  SKILL.md              # Dual-mode: CLI + AAP sections
+  scripts/
+    run.sh              # Local CLI wrapper
+    check.sh            # Prerequisite checks (CLI + AAP)
+    aap_run.py          # AAP Controller API helper (Python stdlib only)
+  assets/
+    playbook.yml        # Playbook for ansible-playbook
+```
+
+The SKILL.md includes:
 
 - **YAML frontmatter** with name and description for agent auto-discovery
 - **Parameters table** with type, required, default, choices, and description
-- **Usage examples** adapted to `ansible` CLI syntax (not playbook YAML)
+- **Local Execution (CLI)** section with `ansible` CLI examples
+- **Production Execution (AAP)** section with AAP Controller API examples and `aap_run.py` usage
 - **JSON output** instructions for structured results
 - **Safety guidance** (dry-run, become, idempotency)
 - **Inventory portability** section for use outside the project
+
+### Dual-Mode Execution
+
+Generated skills are **dual-mode** -- they include both CLI and AAP execution paths:
+
+- **CLI mode** (default): Direct `ansible` commands for development and testing
+- **AAP mode**: When `AAP_CONTROLLER_URL` and `AAP_CONTROLLER_TOKEN` are set, use `scripts/aap_run.py` or the Controller REST API for governed production execution
+
+The `scripts/aap_run.py` helper uses only Python stdlib (`urllib` + `json`) -- no extra pip install needed.
+See the `ansible_aap_guide` skill for full AAP setup instructions.
 
 ## Batch Generation
 

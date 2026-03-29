@@ -109,3 +109,57 @@ Use one of these methods:
 ## Finding Modules
 
 If you don't know which module to use, check the `ansible_search` skill for module discovery via `ansible-doc`.
+
+## Production Execution (AAP)
+
+When `AAP_CONTROLLER_URL` is set, route execution through Ansible Automation Platform for
+governed, auditable runs with centralized credentials and RBAC.
+
+See the `ansible_aap_guide` skill for full setup instructions and environment variables.
+
+### Ad-Hoc via AAP
+
+Run any module as an ad-hoc command through the AAP Controller API:
+
+```bash
+curl -s -X POST "${AAP_CONTROLLER_URL}/api/v2/ad_hoc_commands/" \
+  -H "Authorization: Bearer ${AAP_CONTROLLER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "inventory": 1,
+    "credential": 1,
+    "module_name": "ansible.builtin.package",
+    "module_args": "name=nginx state=present",
+    "become_enabled": true
+  }'
+```
+
+Or use the `aap_run.py` helper from any generated skill:
+
+```bash
+python3 scripts/aap_run.py adhoc "name=nginx state=present" \
+  --inventory "Production" --credential "Machine Cred"
+```
+
+### Job Template Launch
+
+For playbook-based operations, launch a pre-configured job template:
+
+```bash
+python3 scripts/aap_run.py launch "deploy-webservers" \
+  --extra-vars '{"package": "nginx", "state": "present"}' \
+  --limit "web1.example.com"
+```
+
+### AAP Common Patterns
+
+| CLI Command | AAP Equivalent |
+|-------------|---------------|
+| `ansible webservers -m package -a "name=nginx state=present" -b` | `aap_run.py adhoc "name=nginx state=present" --inventory Production --credential MachineKey` |
+| `ansible-playbook deploy.yml -i inventory.yml` | `aap_run.py launch "deploy-template"` |
+| `ansible webservers -m package -a "..." -b --check` | `aap_run.py adhoc "..." --inventory Production --credential MachineKey --check` |
+
+### Choosing CLI vs AAP
+
+- **`AAP_CONTROLLER_URL` is set**: Use the AAP execution paths above
+- **`AAP_CONTROLLER_URL` is not set**: Use the CLI sections earlier in this document

@@ -503,6 +503,40 @@ code {
 }
 
 /* ============================================
+   AAP Status Indicator
+   ============================================ */
+
+.aap-status {
+    display: inline-block;
+    font-size: 0.6rem;
+    margin-left: 0.25rem;
+    vertical-align: middle;
+}
+
+.aap-status.connected {
+    color: var(--ac-success);
+}
+
+.aap-status.configured {
+    color: var(--ac-warning);
+}
+
+.aap-env-table code {
+    font-size: 0.85em;
+}
+
+.aap-env-value {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    word-break: break-all;
+}
+
+.aap-env-masked {
+    color: var(--ac-text-muted);
+    font-style: italic;
+}
+
+/* ============================================
    HTMX Indicators
    ============================================ */
 
