@@ -2,96 +2,122 @@
 {% block title_suffix %} - AAP Configuration{% endblock %}
 
 {% block content %}
-<hgroup>
+<div class="ac-page-header">
     <h2>Ansible Automation Platform (AAP)</h2>
     <p>Configuration status for AAP Controller integration</p>
-</hgroup>
+</div>
 
-<article>
-    <header>
-        <strong>Connection Status</strong>
-    </header>
-    {% if aap_connected %}
-    <p class="success"><strong>Connected</strong> &mdash; AAP Controller is reachable and authenticated.</p>
-    {% elif aap_configured %}
-    <p style="color: var(--ac-warning);"><strong>Configured</strong> &mdash; Environment variables are set but connectivity has not been verified. Check the URL and token.</p>
-    {% else %}
-    <p class="error"><strong>Not Configured</strong> &mdash; Set the environment variables below to enable AAP mode.</p>
-    {% endif %}
-</article>
+<div class="pf-v6-c-card" style="margin-bottom:1rem;">
+    <div class="pf-v6-c-card__title">
+        <h3 class="pf-v6-c-card__title-text">Connection Status</h3>
+    </div>
+    <div class="pf-v6-c-card__body">
+        {% if aap_connected %}
+        <span class="pf-v6-c-label pf-m-green">
+            <span class="pf-v6-c-label__content">
+                <i class="fas fa-check-circle pf-v6-c-label__icon"></i>
+                <span class="pf-v6-c-label__text">Connected</span>
+            </span>
+        </span>
+        <span style="margin-left:0.5rem;">AAP Controller is reachable and authenticated.</span>
+        {% elif aap_configured %}
+        <span class="pf-v6-c-label pf-m-gold">
+            <span class="pf-v6-c-label__content">
+                <i class="fas fa-exclamation-triangle pf-v6-c-label__icon"></i>
+                <span class="pf-v6-c-label__text">Configured</span>
+            </span>
+        </span>
+        <span style="margin-left:0.5rem;">Environment variables are set but connectivity has not been verified.</span>
+        {% else %}
+        <span class="pf-v6-c-label pf-m-red">
+            <span class="pf-v6-c-label__content">
+                <i class="fas fa-times-circle pf-v6-c-label__icon"></i>
+                <span class="pf-v6-c-label__text">Not Configured</span>
+            </span>
+        </span>
+        <span style="margin-left:0.5rem;">Set the environment variables below to enable AAP mode.</span>
+        {% endif %}
+    </div>
+</div>
 
-<article>
-    <header>
-        <strong>Environment Variables</strong>
-    </header>
-    <table class="aap-env-table">
-        <thead>
-            <tr>
-                <th>Variable</th>
-                <th>Status</th>
-                <th>Value</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td><code>AAP_CONTROLLER_URL</code></td>
-                <td>{% if aap_env.url %}<span class="success">Set</span>{% else %}<span class="error">Not set</span>{% endif %}</td>
-                <td class="aap-env-value">{{ aap_env.url or "—" }}</td>
-            </tr>
-            <tr>
-                <td><code>AAP_CONTROLLER_TOKEN</code></td>
-                <td>{% if aap_env.token %}<span class="success">Set</span>{% else %}<span class="error">Not set</span>{% endif %}</td>
-                <td>{% if aap_env.token %}<span class="aap-env-masked">••••••{{ aap_env.token[-4:] }}</span>{% else %}—{% endif %}</td>
-            </tr>
-            <tr>
-                <td><code>AAP_VERIFY_SSL</code></td>
-                <td><span class="success">Set</span></td>
-                <td class="aap-env-value">{{ "true" if aap_env.verify_ssl else "false" }}</td>
-            </tr>
-            <tr>
-                <td><code>AAP_DEFAULT_INVENTORY</code></td>
-                <td>{% if aap_env.default_inventory %}<span class="success">Set</span>{% else %}<span style="color: var(--ac-text-muted);">Optional</span>{% endif %}</td>
-                <td class="aap-env-value">{{ aap_env.default_inventory or "—" }}</td>
-            </tr>
-            <tr>
-                <td><code>AAP_DEFAULT_CREDENTIAL</code></td>
-                <td>{% if aap_env.default_credential %}<span class="success">Set</span>{% else %}<span style="color: var(--ac-text-muted);">Optional</span>{% endif %}</td>
-                <td class="aap-env-value">{{ aap_env.default_credential or "—" }}</td>
-            </tr>
-            <tr>
-                <td><code>AAP_DEFAULT_ORGANIZATION</code></td>
-                <td><span class="success">Set</span></td>
-                <td class="aap-env-value">{{ aap_env.default_organization }}</td>
-            </tr>
-        </tbody>
-    </table>
-</article>
+<div class="pf-v6-c-card" style="margin-bottom:1rem;">
+    <div class="pf-v6-c-card__title">
+        <h3 class="pf-v6-c-card__title-text">Environment Variables</h3>
+    </div>
+    <div class="pf-v6-c-card__body">
+        <table class="pf-v6-c-table pf-m-compact" role="grid" aria-label="AAP environment variables">
+            <thead>
+                <tr role="row">
+                    <th role="columnheader" scope="col">Variable</th>
+                    <th role="columnheader" scope="col">Status</th>
+                    <th role="columnheader" scope="col">Value</th>
+                </tr>
+            </thead>
+            <tbody role="rowgroup">
+                <tr role="row">
+                    <td role="cell"><code>AAP_CONTROLLER_URL</code></td>
+                    <td role="cell">{% if aap_env.url %}<span class="ac-success">Set</span>{% else %}<span class="ac-error">Not set</span>{% endif %}</td>
+                    <td role="cell" class="ac-env-value">{{ aap_env.url or "—" }}</td>
+                </tr>
+                <tr role="row">
+                    <td role="cell"><code>AAP_CONTROLLER_TOKEN</code></td>
+                    <td role="cell">{% if aap_env.token %}<span class="ac-success">Set</span>{% else %}<span class="ac-error">Not set</span>{% endif %}</td>
+                    <td role="cell">{% if aap_env.token %}<span class="ac-env-masked">••••••{{ aap_env.token[-4:] }}</span>{% else %}—{% endif %}</td>
+                </tr>
+                <tr role="row">
+                    <td role="cell"><code>AAP_VERIFY_SSL</code></td>
+                    <td role="cell"><span class="ac-success">Set</span></td>
+                    <td role="cell" class="ac-env-value">{{ "true" if aap_env.verify_ssl else "false" }}</td>
+                </tr>
+                <tr role="row">
+                    <td role="cell"><code>AAP_DEFAULT_INVENTORY</code></td>
+                    <td role="cell">{% if aap_env.default_inventory %}<span class="ac-success">Set</span>{% else %}<span class="ac-muted">Optional</span>{% endif %}</td>
+                    <td role="cell" class="ac-env-value">{{ aap_env.default_inventory or "—" }}</td>
+                </tr>
+                <tr role="row">
+                    <td role="cell"><code>AAP_DEFAULT_CREDENTIAL</code></td>
+                    <td role="cell">{% if aap_env.default_credential %}<span class="ac-success">Set</span>{% else %}<span class="ac-muted">Optional</span>{% endif %}</td>
+                    <td role="cell" class="ac-env-value">{{ aap_env.default_credential or "—" }}</td>
+                </tr>
+                <tr role="row">
+                    <td role="cell"><code>AAP_DEFAULT_ORGANIZATION</code></td>
+                    <td role="cell"><span class="ac-success">Set</span></td>
+                    <td role="cell" class="ac-env-value">{{ aap_env.default_organization }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
 
-<article>
-    <header>
-        <strong>Setup Instructions</strong>
-    </header>
-    <p>Set these environment variables before starting AnsibleClaw to enable AAP mode:</p>
-    <pre><code>export AAP_CONTROLLER_URL="https://aap.example.com"
+<div class="pf-v6-c-card" style="margin-bottom:1rem;">
+    <div class="pf-v6-c-card__title">
+        <h3 class="pf-v6-c-card__title-text">Setup Instructions</h3>
+    </div>
+    <div class="pf-v6-c-card__body">
+        <p>Set these environment variables before starting AnsibleClaw to enable AAP mode:</p>
+        <pre class="ac-code"><code>export AAP_CONTROLLER_URL="https://aap.example.com"
 export AAP_CONTROLLER_TOKEN="your-oauth2-token"
 export AAP_VERIFY_SSL="true"
 export AAP_DEFAULT_INVENTORY="Production"
 export AAP_DEFAULT_CREDENTIAL="Machine SSH Key"</code></pre>
-    <p>Generate a token in the AAP/AWX web UI under <strong>Users</strong> &rarr; your user &rarr; <strong>Tokens</strong>.</p>
-    <p>Once configured, all generated skills will include a <strong>Production Execution (AAP)</strong> section
-    with API examples and an <code>aap_run.py</code> helper script.</p>
-</article>
+        <p style="margin-top:1rem;">Generate a token in the AAP/AWX web UI under <strong>Users</strong> &rarr; your user &rarr; <strong>Tokens</strong>.</p>
+        <p>Once configured, all generated skills will include a <strong>Production Execution (AAP)</strong> section
+        with API examples and an <code>aap_run.py</code> helper script.</p>
+    </div>
+</div>
 
 {% if aap_connected %}
-<article>
-    <header>
-        <strong>Quick Test</strong>
-    </header>
-    <button hx-get="/aap/ping" hx-target="#ping-result" hx-indicator="#ping-spinner">
-        Test Connection
-    </button>
-    <span id="ping-spinner" class="htmx-indicator">Testing...</span>
-    <div id="ping-result" style="margin-top: 0.5rem;"></div>
-</article>
+<div class="pf-v6-c-card">
+    <div class="pf-v6-c-card__title">
+        <h3 class="pf-v6-c-card__title-text">Quick Test</h3>
+    </div>
+    <div class="pf-v6-c-card__body">
+        <button class="pf-v6-c-button pf-m-primary" hx-get="/aap/ping" hx-target="#ping-result" hx-indicator="#ping-spinner">
+            Test Connection
+        </button>
+        <span id="ping-spinner" class="htmx-indicator">Testing...</span>
+        <div id="ping-result" style="margin-top: 0.5rem;"></div>
+    </div>
+</div>
 {% endif %}
 {% endblock %}

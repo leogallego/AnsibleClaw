@@ -2,27 +2,38 @@
 {% block title_suffix %} - Module Search{% endblock %}
 
 {% block content %}
-<h1>Module Search</h1>
+<div class="ac-page-header">
+    <h1>Module Search</h1>
+</div>
 
-<form hx-get="/search/results" hx-target="#results" hx-trigger="submit" hx-indicator="#search-spinner">
-    <div class="grid">
-        <label>
-            Keyword
-            <input type="text" name="q" placeholder="e.g., redis, docker, firewall" autofocus>
-        </label>
-        <label>
-            Namespace (optional)
-            <input type="text" name="ns" placeholder="e.g., community.general, ansible.builtin">
-        </label>
-        <label>
-            &nbsp;
-            <button type="submit">Search</button>
-        </label>
+<form class="pf-v6-c-form" hx-get="/search/results" hx-target="#results" hx-trigger="submit" hx-indicator="#search-spinner">
+    <div class="pf-v6-l-grid pf-m-gutter pf-m-all-4-col-on-md">
+        <div class="pf-v6-c-form__group">
+            <label class="pf-v6-c-form__label" for="search-keyword">
+                <span class="pf-v6-c-form__label-text">Keyword</span>
+            </label>
+            <span class="pf-v6-c-form-control">
+                <input type="text" id="search-keyword" name="q" placeholder="e.g., redis, docker, firewall" autofocus>
+            </span>
+        </div>
+        <div class="pf-v6-c-form__group">
+            <label class="pf-v6-c-form__label" for="search-namespace">
+                <span class="pf-v6-c-form__label-text">Namespace (optional)</span>
+            </label>
+            <span class="pf-v6-c-form-control">
+                <input type="text" id="search-namespace" name="ns" placeholder="e.g., community.general, ansible.builtin">
+            </span>
+        </div>
+        <div class="pf-v6-c-form__group" style="display:flex;align-items:flex-end;">
+            <button type="submit" class="pf-v6-c-button pf-m-primary">
+                <i class="fas fa-search" style="margin-right:0.4em;"></i> Search
+            </button>
+        </div>
     </div>
 </form>
 
 <span id="search-spinner" class="htmx-indicator" aria-busy="true">Searching...</span>
 
-<div id="results"></div>
-<div id="module-detail"></div>
+<div id="results" style="margin-top:1rem;"></div>
+<div id="module-detail" style="margin-top:1rem;"></div>
 {% endblock %}

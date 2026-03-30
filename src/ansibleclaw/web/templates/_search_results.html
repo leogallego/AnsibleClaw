@@ -1,32 +1,32 @@
-<table>
+<table class="pf-v6-c-table pf-m-grid-md" role="grid" aria-label="Search results">
     <thead>
-        <tr>
-            <th>Module</th>
-            <th>Description</th>
-            <th>Actions</th>
+        <tr role="row">
+            <th role="columnheader" scope="col">Module</th>
+            <th role="columnheader" scope="col">Description</th>
+            <th role="columnheader" scope="col">Actions</th>
         </tr>
     </thead>
-    <tbody>
+    <tbody role="rowgroup">
         {% for name, desc in results.items() | sort %}
-        <tr>
-            <td><code>{{ name }}</code></td>
-            <td>{{ desc or "" }}</td>
-            <td>
-                <button
-                    class="outline"
-                    hx-get="/search/detail/{{ name }}"
-                    hx-target="#module-detail"
-                    hx-swap="innerHTML"
-                    style="padding: 0.25rem 0.75rem; font-size: 0.8rem; margin-right: 0.25rem;">
-                    Details
-                </button>
-                <a href="/generate?module={{ name }}" role="button" class="secondary outline"
-                   style="padding: 0.25rem 0.75rem; font-size: 0.8rem;">
-                    Generate Skill
-                </a>
+        <tr role="row">
+            <td role="cell" data-label="Module"><code>{{ name }}</code></td>
+            <td role="cell" data-label="Description">{{ desc or "" }}</td>
+            <td role="cell" data-label="Actions">
+                <div class="ac-action-row">
+                    <button
+                        class="pf-v6-c-button pf-m-secondary pf-m-small"
+                        hx-get="/search/detail/{{ name }}"
+                        hx-target="#module-detail"
+                        hx-swap="innerHTML">
+                        Details
+                    </button>
+                    <a href="/generate?module={{ name }}" class="pf-v6-c-button pf-m-link pf-m-small">
+                        Generate Skill
+                    </a>
+                </div>
             </td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
-<p><small>{{ results | length }} module(s) found.</small></p>
+<p style="margin-top:0.5rem;"><small>{{ results | length }} module(s) found.</small></p>

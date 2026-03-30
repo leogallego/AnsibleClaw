@@ -2,33 +2,47 @@
 {% block title_suffix %} - Skills Library{% endblock %}
 
 {% block content %}
-<h1>Skills Library</h1>
-<p>{{ skills | length }} skill(s) installed.</p>
+<div class="ac-page-header">
+    <h1>Skills Library</h1>
+    <p>{{ skills | length }} skill(s) installed.</p>
+</div>
 
-<input type="search" id="skill-filter" placeholder="Filter skills by name, description, or type..." autofocus>
+<div class="pf-v6-c-form__group" style="margin-bottom:1rem;">
+    <span class="pf-v6-c-form-control">
+        <input type="search" id="skill-filter" placeholder="Filter skills by name, description, or type..." autofocus>
+    </span>
+</div>
 
-<table>
+<table class="pf-v6-c-table pf-m-grid-md" role="grid" aria-label="Skills library">
     <thead>
-        <tr>
-            <th>Name</th>
-            <th>Description</th>
-            <th>Type</th>
-            <th>Actions</th>
+        <tr role="row">
+            <th role="columnheader" scope="col">Name</th>
+            <th role="columnheader" scope="col">Description</th>
+            <th role="columnheader" scope="col">Type</th>
+            <th role="columnheader" scope="col">Actions</th>
         </tr>
     </thead>
-    <tbody>
+    <tbody role="rowgroup">
         {% for skill in skills %}
-        <tr id="skill-{{ skill.dir_name }}">
-            <td><a href="/skills/{{ skill.dir_name }}">{{ skill.name }}</a></td>
-            <td>{{ skill.description | truncate(80) }}</td>
-            <td><span class="skill-type">{{ skill.type }}</span></td>
-            <td>
-                <div class="action-row">
+        <tr role="row" id="skill-{{ skill.dir_name }}">
+            <td role="cell" data-label="Name">
+                <a href="/skills/{{ skill.dir_name }}">{{ skill.name }}</a>
+            </td>
+            <td role="cell" data-label="Description">{{ skill.description | truncate(80) }}</td>
+            <td role="cell" data-label="Type">
+                <span class="pf-v6-c-label {% if skill.type == 'built-in' %}pf-m-blue{% else %}pf-m-green{% endif %}">
+                    <span class="pf-v6-c-label__content">
+                        <span class="pf-v6-c-label__text">{{ skill.type }}</span>
+                    </span>
+                </span>
+            </td>
+            <td role="cell" data-label="Actions">
+                <div class="ac-action-row">
                     <a href="/skills/{{ skill.dir_name }}/download"
-                       role="button" class="outline action-btn">ZIP</a>
+                       class="pf-v6-c-button pf-m-secondary pf-m-small">ZIP</a>
                     {% if skill.type != "built-in" %}
                     <button
-                        class="secondary outline action-btn"
+                        class="pf-v6-c-button pf-m-danger pf-m-small"
                         hx-delete="/skills/{{ skill.dir_name }}"
                         hx-target="#skill-{{ skill.dir_name }}"
                         hx-swap="outerHTML"
@@ -36,23 +50,24 @@
                         Delete
                     </button>
                     {% endif %}
-                    <div class="dropdown">
-                        <button type="button" class="outline action-btn dropdown-trigger">
-                            Install <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style="margin-left:2px;vertical-align:middle;"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <div class="ac-dropdown">
+                        <button type="button" class="pf-v6-c-button pf-m-secondary pf-m-small ac-dropdown-trigger">
+                            Install
+                            <i class="fas fa-caret-down" style="margin-left:4px;font-size:0.7em;"></i>
                         </button>
-                        <div class="dropdown-menu">
+                        <div class="ac-dropdown-menu">
                             <form hx-post="/skills/{{ skill.dir_name }}/install" hx-target="#install-result-{{ skill.dir_name }}" hx-swap="innerHTML" style="margin:0;">
                                 <input type="hidden" name="platform" value="cursor">
-                                <button type="submit" class="dropdown-item">Cursor</button>
+                                <button type="submit" class="ac-dropdown-item">Cursor</button>
                             </form>
                             <form hx-post="/skills/{{ skill.dir_name }}/install" hx-target="#install-result-{{ skill.dir_name }}" hx-swap="innerHTML" style="margin:0;">
                                 <input type="hidden" name="platform" value="claude">
-                                <button type="submit" class="dropdown-item">Claude</button>
+                                <button type="submit" class="ac-dropdown-item">Claude</button>
                             </form>
                         </div>
                     </div>
                 </div>
-                <div id="install-result-{{ skill.dir_name }}" class="install-result"></div>
+                <div id="install-result-{{ skill.dir_name }}" class="ac-install-result"></div>
             </td>
         </tr>
         {% endfor %}
@@ -69,21 +84,21 @@ document.getElementById('skill-filter').addEventListener('input', function() {
 });
 
 document.addEventListener('click', function(e) {
-    var trigger = e.target.closest('.dropdown-trigger');
+    var trigger = e.target.closest('.ac-dropdown-trigger');
     if (trigger) {
         e.preventDefault();
-        var dd = trigger.closest('.dropdown');
+        var dd = trigger.closest('.ac-dropdown');
         var wasOpen = dd.classList.contains('open');
-        document.querySelectorAll('.dropdown.open').forEach(function(el) { el.classList.remove('open'); });
+        document.querySelectorAll('.ac-dropdown.open').forEach(function(el) { el.classList.remove('open'); });
         if (!wasOpen) dd.classList.add('open');
         return;
     }
-    if (e.target.closest('.dropdown-menu')) return;
-    document.querySelectorAll('.dropdown.open').forEach(function(el) { el.classList.remove('open'); });
+    if (e.target.closest('.ac-dropdown-menu')) return;
+    document.querySelectorAll('.ac-dropdown.open').forEach(function(el) { el.classList.remove('open'); });
 });
 
 document.addEventListener('htmx:afterRequest', function(e) {
-    var dd = e.target.closest('.dropdown');
+    var dd = e.target.closest('.ac-dropdown');
     if (dd) dd.classList.remove('open');
 });
 </script>

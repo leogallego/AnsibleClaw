@@ -179,7 +179,7 @@ async def install_skill(name: str, platform: str = Form(...)):
         shutil.rmtree(target)
     shutil.copytree(skill_dir, target)
     return HTMLResponse(
-        f'<span class="success">\u2713 Installed to {target}</span>'
+        f'<span class="ac-success">\u2713 Installed to {target}</span>'
     )
 
 
@@ -214,7 +214,7 @@ async def search_results(request: Request, q: str = "", ns: str = ""):
             from ansibleclaw.core.parser import list_modules
             results = list_modules(namespace=ns or None)
     except AnsibleDocError as exc:
-        return HTMLResponse(f'<p class="error">{exc}</p>')
+        return HTMLResponse(f'<p class="ac-error">{exc}</p>')
     return TEMPLATES.TemplateResponse(request, "_search_results.html", {
         "results": results,
         "query": q,
@@ -227,7 +227,7 @@ async def module_detail(request: Request, module: str):
         doc = get_module_doc(module)
         metadata = extract_module_metadata(doc)
     except AnsibleDocError as exc:
-        return HTMLResponse(f'<p class="error">{exc}</p>')
+        return HTMLResponse(f'<p class="ac-error">{exc}</p>')
     return TEMPLATES.TemplateResponse(request, "_module_detail.html", {
         "metadata": metadata,
     })
@@ -250,7 +250,7 @@ async def generate_preview(request: Request, module: str = ""):
         metadata = extract_module_metadata(doc)
         preview = _render_skill_md(metadata)
     except AnsibleDocError as exc:
-        return HTMLResponse(f'<p class="error">{exc}</p>')
+        return HTMLResponse(f'<p class="ac-error">{exc}</p>')
     return HTMLResponse(f"<pre><code>{preview}</code></pre>")
 
 
@@ -264,7 +264,7 @@ async def generate_skill(
         doc = get_module_doc(module)
         metadata = extract_module_metadata(doc)
     except AnsibleDocError as exc:
-        return HTMLResponse(f'<p class="error">{exc}</p>', status_code=400)
+        return HTMLResponse(f'<p class="ac-error">{exc}</p>', status_code=400)
 
     from ansibleclaw.cli import _module_to_skill_name, _write_skill_package
     skill_name = _module_to_skill_name(metadata["module_name"])
@@ -287,7 +287,7 @@ async def generate_skill(
         )
 
     return HTMLResponse(
-        f'<p class="success">Skill generated: <code>{output_dir}</code>'
+        f'<p class="ac-success">Skill generated: <code>{output_dir}</code>'
         f" (SKILL.md, scripts/, assets/){download_link}</p>"
     )
 
@@ -380,5 +380,5 @@ async def aap_page(request: Request):
 @app.get("/aap/ping", response_class=HTMLResponse)
 async def aap_ping():
     if _aap_ping():
-        return HTMLResponse('<span class="success">Connection successful</span>')
-    return HTMLResponse('<span class="error">Connection failed</span>')
+        return HTMLResponse('<span class="ac-success">Connection successful</span>')
+    return HTMLResponse('<span class="ac-error">Connection failed</span>')

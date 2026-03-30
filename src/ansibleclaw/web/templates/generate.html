@@ -2,59 +2,84 @@
 {% block title_suffix %} - Generate Skill{% endblock %}
 
 {% block content %}
-<h1>Generate Skill</h1>
+<div class="ac-page-header">
+    <h1>Generate Skill</h1>
+</div>
 
-<div class="grid">
+<div class="pf-v6-l-grid pf-m-gutter pf-m-all-6-col-on-lg">
     <div>
-        <form id="generate-form" hx-post="/generate" hx-target="#generate-result" hx-swap="innerHTML">
-            <label>
-                Module Name
-                <input type="text" name="module" id="module-input"
-                       placeholder="e.g., community.general.redis"
-                       value="{{ request.query_params.get('module', '') }}"
-                       required autofocus>
-            </label>
-
-            <fieldset>
-                <legend>Target</legend>
-                <label>
-                    <input type="radio" name="target" value="project" checked>
-                    Project (skills/)
-                </label>
-                {% for platform in platforms %}
-                <label>
-                    <input type="radio" name="target" value="{{ platform }}">
-                    {{ platform | capitalize }}
-                </label>
-                {% endfor %}
-                <label>
-                    <input type="radio" name="target" value="custom">
-                    Custom path
-                </label>
-                <input type="text" name="custom_path" placeholder="/path/to/skills/" style="margin-top: 0.5rem;">
-            </fieldset>
-
-            <div class="grid">
-                <button type="button"
-                        hx-get="/generate/preview"
-                        hx-target="#preview-pane"
-                        hx-swap="innerHTML"
-                        hx-include="#module-input"
-                        hx-indicator="#preview-spinner"
-                        class="secondary">
-                    Preview
-                </button>
-                <button type="submit">Generate</button>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__title">
+                <h2 class="pf-v6-c-card__title-text">Configuration</h2>
             </div>
-        </form>
+            <div class="pf-v6-c-card__body">
+                <form id="generate-form" class="pf-v6-c-form" hx-post="/generate" hx-target="#generate-result" hx-swap="innerHTML">
+                    <div class="pf-v6-c-form__group">
+                        <label class="pf-v6-c-form__label" for="module-input">
+                            <span class="pf-v6-c-form__label-text">Module Name</span>
+                            <span class="pf-v6-c-form__label-required" aria-hidden="true">&#42;</span>
+                        </label>
+                        <span class="pf-v6-c-form-control">
+                            <input type="text" name="module" id="module-input"
+                                   placeholder="e.g., community.general.redis"
+                                   value="{{ request.query_params.get('module', '') }}"
+                                   required autofocus>
+                        </span>
+                    </div>
 
-        <div id="generate-result"></div>
+                    <div class="pf-v6-c-form__group" role="group" aria-labelledby="target-legend">
+                        <label class="pf-v6-c-form__label" id="target-legend">
+                            <span class="pf-v6-c-form__label-text">Target</span>
+                        </label>
+                        <div class="pf-v6-c-radio" style="margin-bottom:0.25rem;">
+                            <input class="pf-v6-c-radio__input" type="radio" id="target-project" name="target" value="project" checked>
+                            <label class="pf-v6-c-radio__label" for="target-project">Project (skills/)</label>
+                        </div>
+                        {% for platform in platforms %}
+                        <div class="pf-v6-c-radio" style="margin-bottom:0.25rem;">
+                            <input class="pf-v6-c-radio__input" type="radio" id="target-{{ platform }}" name="target" value="{{ platform }}">
+                            <label class="pf-v6-c-radio__label" for="target-{{ platform }}">{{ platform | capitalize }}</label>
+                        </div>
+                        {% endfor %}
+                        <div class="pf-v6-c-radio" style="margin-bottom:0.25rem;">
+                            <input class="pf-v6-c-radio__input" type="radio" id="target-custom" name="target" value="custom">
+                            <label class="pf-v6-c-radio__label" for="target-custom">Custom path</label>
+                        </div>
+                        <span class="pf-v6-c-form-control" style="margin-top:0.5rem;">
+                            <input type="text" name="custom_path" placeholder="/path/to/skills/">
+                        </span>
+                    </div>
+
+                    <div class="pf-v6-c-form__group pf-v6-c-form__group--action" style="display:flex;gap:0.5rem;">
+                        <button type="button"
+                                class="pf-v6-c-button pf-m-secondary"
+                                hx-get="/generate/preview"
+                                hx-target="#preview-pane"
+                                hx-swap="innerHTML"
+                                hx-include="#module-input"
+                                hx-indicator="#preview-spinner">
+                            Preview
+                        </button>
+                        <button type="submit" class="pf-v6-c-button pf-m-primary">Generate</button>
+                    </div>
+                </form>
+            </div>
+            <div class="pf-v6-c-card__footer">
+                <div id="generate-result"></div>
+            </div>
+        </div>
     </div>
 
     <div>
-        <h3>Preview <span id="preview-spinner" class="htmx-indicator" aria-busy="true"></span></h3>
-        <div id="preview-pane">
-            <p><small>Click "Preview" to see the SKILL.md that will be generated.</small></p>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__title">
+                <h2 class="pf-v6-c-card__title-text">Preview <span id="preview-spinner" class="htmx-indicator" aria-busy="true"></span></h2>
+            </div>
+            <div class="pf-v6-c-card__body">
+                <div id="preview-pane">
+                    <p><small>Click "Preview" to see the SKILL.md that will be generated.</small></p>
+                </div>
+            </div>
         </div>
     </div>
 </div>

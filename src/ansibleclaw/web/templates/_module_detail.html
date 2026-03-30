@@ -1,34 +1,43 @@
-<article>
-    <header>
-        <strong>{{ metadata.module_name }}</strong> &mdash; {{ metadata.short_description }}
-    </header>
+<div class="pf-v6-c-card" style="margin-top:1rem;">
+    <div class="pf-v6-c-card__title">
+        <h3 class="pf-v6-c-card__title-text">{{ metadata.module_name }}</h3>
+        <p style="margin-top:0.25rem;color:var(--pf-t--global--text--color--subtle);">{{ metadata.short_description }}</p>
+    </div>
+    <div class="pf-v6-c-card__body">
+        {% if metadata.params %}
+        <h4>Parameters</h4>
+        <table class="pf-v6-c-table pf-m-compact" role="grid" aria-label="Module parameters">
+            <thead>
+                <tr role="row">
+                    <th role="columnheader" scope="col">Name</th>
+                    <th role="columnheader" scope="col">Type</th>
+                    <th role="columnheader" scope="col">Required</th>
+                    <th role="columnheader" scope="col">Default</th>
+                    <th role="columnheader" scope="col">Description</th>
+                </tr>
+            </thead>
+            <tbody role="rowgroup">
+                {% for p in metadata.params %}
+                <tr role="row">
+                    <td role="cell"><code>{{ p.name }}</code></td>
+                    <td role="cell">{{ p.type }}</td>
+                    <td role="cell">{{ "yes" if p.required else "no" }}</td>
+                    <td role="cell">{{ p.default if p.default is not none else "-" }}</td>
+                    <td role="cell">{{ p.description | truncate(100) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
 
-    {% if metadata.params %}
-    <h4>Parameters</h4>
-    <table>
-        <thead>
-            <tr><th>Name</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
-        </thead>
-        <tbody>
-            {% for p in metadata.params %}
-            <tr>
-                <td><code>{{ p.name }}</code></td>
-                <td>{{ p.type }}</td>
-                <td>{{ "yes" if p.required else "no" }}</td>
-                <td>{{ p.default if p.default is not none else "-" }}</td>
-                <td>{{ p.description | truncate(100) }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% endif %}
-
-    {% if metadata.examples %}
-    <h4>Examples</h4>
-    <pre><code>{{ metadata.examples }}</code></pre>
-    {% endif %}
-
-    <footer>
-        <a href="/generate?module={{ metadata.module_name }}" role="button">Generate Skill for {{ metadata.module_name }}</a>
-    </footer>
-</article>
+        {% if metadata.examples %}
+        <h4 style="margin-top:1rem;">Examples</h4>
+        <pre class="ac-code"><code>{{ metadata.examples }}</code></pre>
+        {% endif %}
+    </div>
+    <div class="pf-v6-c-card__footer">
+        <a href="/generate?module={{ metadata.module_name }}" class="pf-v6-c-button pf-m-primary">
+            Generate Skill for {{ metadata.module_name }}
+        </a>
+    </div>
+</div>

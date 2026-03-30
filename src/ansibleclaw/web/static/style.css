@@ -1,539 +1,204 @@
 /* ============================================
-   AnsibleClaw Theme System
-   Dark/Light mode inspired by vllm-playground
+   AnsibleClaw -- PatternFly 6 Customisations
    ============================================ */
 
-/* Dark Mode (Default) */
+/* No sidebar -- let main content fill the full width */
+.pf-v6-c-page {
+    grid-template-columns: 1fr;
+}
+
+/* Bump base font size */
 :root {
-    --ac-primary: #4f46e5;
-    --ac-primary-hover: #4338ca;
-    --ac-primary-light: rgba(79, 70, 229, 0.15);
-    --ac-danger: #ef4444;
-    --ac-danger-hover: #dc2626;
-    --ac-success: #10b981;
-    --ac-warning: #f59e0b;
-    --ac-bg-primary: #0f172a;
-    --ac-bg-secondary: #1e293b;
-    --ac-bg-tertiary: #334155;
-    --ac-text-primary: #f1f5f9;
-    --ac-text-secondary: #94a3b8;
-    --ac-text-muted: #64748b;
-    --ac-border: #475569;
-    --ac-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-    --ac-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
-    --ac-hover-overlay: rgba(255, 255, 255, 0.05);
-    --ac-input-bg: #334155;
-    --ac-card-bg: #1e293b;
-    --ac-nav-bg: linear-gradient(180deg, #0c1222 0%, #111827 100%);
-    --ac-nav-border: rgba(255, 255, 255, 0.08);
-    --ac-code-bg: #1e293b;
-    --ac-badge-bg: rgba(79, 70, 229, 0.2);
-    --ac-badge-text: #a5b4fc;
-    --ac-link: #818cf8;
-    --ac-link-hover: #a5b4fc;
-    --ac-accent: #a78bfa;
-    --ac-scrollbar-track: #1e293b;
-    --ac-scrollbar-thumb: #475569;
+    --pf-t--global--font--size--body--default: 1rem;
 }
 
-/* Light Mode */
-[data-theme="light"] {
-    --ac-primary: #0ea5e9;
-    --ac-primary-hover: #0284c7;
-    --ac-primary-light: rgba(14, 165, 233, 0.1);
-    --ac-danger: #ef4444;
-    --ac-danger-hover: #dc2626;
-    --ac-success: #10b981;
-    --ac-warning: #f59e0b;
-    --ac-bg-primary: #f8fafc;
-    --ac-bg-secondary: #ffffff;
-    --ac-bg-tertiary: #f1f5f9;
-    --ac-text-primary: #0f172a;
-    --ac-text-secondary: #64748b;
-    --ac-text-muted: #94a3b8;
-    --ac-border: #e2e8f0;
-    --ac-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
-    --ac-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
-    --ac-hover-overlay: rgba(14, 165, 233, 0.04);
-    --ac-input-bg: #ffffff;
-    --ac-card-bg: #ffffff;
-    --ac-nav-bg: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-    --ac-nav-border: #e2e8f0;
-    --ac-code-bg: #f1f5f9;
-    --ac-badge-bg: rgba(14, 165, 233, 0.1);
-    --ac-badge-text: #0284c7;
-    --ac-link: #0ea5e9;
-    --ac-link-hover: #0284c7;
-    --ac-accent: #f59e0b;
-    --ac-scrollbar-track: #f1f5f9;
-    --ac-scrollbar-thumb: #cbd5e1;
-}
-
-/* ============================================
-   Pico CSS Variable Overrides
-   Map our theme vars into Pico's system
-   ============================================ */
-
-:root:not([data-theme="light"]) {
-    --pico-background-color: var(--ac-bg-primary);
-    --pico-color: var(--ac-text-primary);
-    --pico-muted-color: var(--ac-text-secondary);
-    --pico-primary: var(--ac-primary);
-    --pico-primary-hover: var(--ac-primary-hover);
-    --pico-secondary: var(--ac-text-secondary);
-    --pico-secondary-hover: var(--ac-text-primary);
-    --pico-card-background-color: var(--ac-card-bg);
-    --pico-card-border-color: var(--ac-border);
-    --pico-card-sectioning-background-color: var(--ac-bg-tertiary);
-    --pico-table-border-color: var(--ac-border);
-    --pico-table-row-stripped-background-color: rgba(255, 255, 255, 0.03);
-    --pico-form-element-background-color: var(--ac-input-bg);
-    --pico-form-element-border-color: var(--ac-border);
-    --pico-form-element-color: var(--ac-text-primary);
-    --pico-form-element-focus-color: var(--ac-primary);
-    --pico-code-background-color: var(--ac-code-bg);
-    --pico-code-color: #e2e8f0;
-    --pico-blockquote-border-color: var(--ac-primary);
-    --pico-hr-border-color: var(--ac-border);
-    color-scheme: dark;
-}
-
-[data-theme="light"] {
-    --pico-background-color: var(--ac-bg-primary);
-    --pico-color: var(--ac-text-primary);
-    --pico-muted-color: var(--ac-text-secondary);
-    --pico-primary: var(--ac-primary);
-    --pico-primary-hover: var(--ac-primary-hover);
-    --pico-secondary: var(--ac-text-secondary);
-    --pico-secondary-hover: var(--ac-text-primary);
-    --pico-card-background-color: var(--ac-card-bg);
-    --pico-card-border-color: var(--ac-border);
-    --pico-card-sectioning-background-color: var(--ac-bg-tertiary);
-    --pico-table-border-color: var(--ac-border);
-    --pico-table-row-stripped-background-color: rgba(0, 0, 0, 0.02);
-    --pico-form-element-background-color: var(--ac-input-bg);
-    --pico-form-element-border-color: var(--ac-border);
-    --pico-form-element-color: var(--ac-text-primary);
-    --pico-form-element-focus-color: var(--ac-primary);
-    --pico-code-background-color: var(--ac-code-bg);
-    --pico-code-color: #334155;
-    --pico-blockquote-border-color: var(--ac-primary);
-    --pico-hr-border-color: var(--ac-border);
-    color-scheme: light;
-}
-
-/* ============================================
-   Base Styles
-   ============================================ */
-
-body {
-    background: var(--ac-bg-primary);
-    color: var(--ac-text-primary);
-    transition: background 0.3s ease, color 0.3s ease;
-}
-
-a {
-    color: var(--ac-link);
-    transition: color 0.2s ease;
-}
-
-a:hover {
-    color: var(--ac-link-hover);
-}
-
-/* ============================================
-   Navigation
-   ============================================ */
-
-nav.container {
-    background: var(--ac-bg-secondary);
-    border-bottom: 1px solid var(--ac-border);
-    box-shadow: var(--ac-shadow);
-    padding: 0.75rem 1.5rem;
-    margin-bottom: 0;
+.pf-v6-c-page__main-section {
     max-width: 100%;
-    transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-.nav-brand {
+/* ============================================
+   Masthead -- brand + nav left, toggle right
+   ============================================ */
+
+.ac-masthead {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.75rem 1.5rem;
+    background: var(--pf-t--global--background--color--secondary--default);
+    border-bottom: 1px solid var(--pf-t--global--border--color--default);
+    grid-column: 1 / -1;
+}
+
+.ac-masthead__brand {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     text-decoration: none;
-    padding: 0;
+    flex-shrink: 0;
 }
 
-.nav-brand:hover {
-    background: none;
+.ac-masthead .pf-v6-c-nav {
+    flex-shrink: 0;
 }
 
-.nav-logo {
+.ac-masthead .ac-theme-toggle {
+    margin-left: auto;
+}
+
+/* Brand logo */
+.ac-nav-logo {
     height: 24px;
     width: 24px;
     object-fit: contain;
     border-radius: 3px;
 }
 
-nav ul li strong {
-    font-size: 1.2rem;
-    background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-[data-theme="light"] nav ul li strong {
-    background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-nav a {
-    color: var(--ac-text-secondary);
-    text-decoration: none;
-    padding: 0.4rem 0.8rem;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    font-weight: 500;
-    font-size: 0.9rem;
-}
-
-nav a:hover {
-    color: var(--ac-text-primary);
-    background: var(--ac-hover-overlay);
-}
-
-nav a[aria-current="page"] {
-    color: var(--ac-primary);
-    background: var(--ac-primary-light);
-    font-weight: 600;
+.ac-brand-text {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--pf-t--global--text--color--regular);
 }
 
 /* ============================================
-   Theme Toggle Button
+   Theme Toggle
    ============================================ */
 
-.theme-toggle-btn {
-    background: var(--ac-bg-tertiary);
-    border: 1px solid var(--ac-border);
-    border-radius: 20px;
-    padding: 6px 14px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    display: flex;
+.ac-theme-toggle {
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     font-size: 0.8rem;
-    color: var(--ac-text-secondary);
-    font-weight: 500;
     white-space: nowrap;
+    cursor: pointer;
 }
 
-.theme-toggle-btn:hover {
-    background: var(--ac-hover-overlay);
-    border-color: var(--ac-primary);
-    color: var(--ac-primary);
-}
-
-[data-theme="light"] .theme-toggle-btn {
-    background: var(--ac-bg-secondary);
-    box-shadow: var(--ac-shadow);
-}
-
-[data-theme="light"] .theme-toggle-btn:hover {
-    background: var(--ac-hover-overlay);
-    border-color: var(--ac-primary);
-}
-
-.theme-toggle-btn .theme-icon {
-    font-size: 0.95rem;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-}
-
-.theme-toggle-btn .theme-label {
+.ac-theme-toggle .theme-label {
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
 /* ============================================
-   Main Content
+   AAP Status Dot
    ============================================ */
 
-main.container {
-    padding-top: 2rem;
-    padding-bottom: 2rem;
-    animation: fadeSlideIn 0.4s ease forwards;
-}
-
-h1, h2, h3, h4, h5, h6 {
-    color: var(--ac-text-primary);
-}
-
-p, small {
-    color: var(--ac-text-secondary);
-}
-
-/* ============================================
-   Cards & Articles
-   ============================================ */
-
-article {
-    background: var(--ac-card-bg);
-    border: 1px solid var(--ac-border);
-    border-radius: 8px;
-    box-shadow: var(--ac-shadow);
-    transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-/* ============================================
-   Tables
-   ============================================ */
-
-table {
-    border-collapse: collapse;
-}
-
-thead {
-    background: var(--ac-bg-tertiary);
-}
-
-th {
-    color: var(--ac-text-primary);
-    font-weight: 600;
-    border-bottom: 2px solid var(--ac-border);
-}
-
-td {
-    border-bottom: 1px solid var(--ac-border);
-}
-
-tbody tr {
-    transition: background 0.15s ease;
-}
-
-tbody tr:hover {
-    background: var(--ac-hover-overlay);
-}
-
-/* ============================================
-   Skill Type Badge
-   ============================================ */
-
-.skill-type {
-    font-size: 0.75rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 1rem;
-    background: var(--ac-badge-bg);
-    color: var(--ac-badge-text);
-    font-weight: 500;
-}
-
-/* ============================================
-   Forms & Inputs
-   ============================================ */
-
-input, select, textarea {
-    background: var(--ac-input-bg) !important;
-    border-color: var(--ac-border) !important;
-    color: var(--ac-text-primary) !important;
-    transition: all 0.2s ease;
-}
-
-input:focus, select:focus, textarea:focus {
-    border-color: var(--ac-primary) !important;
-    box-shadow: 0 0 0 3px var(--ac-primary-light) !important;
-}
-
-textarea.code-editor {
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
-    font-size: 0.9rem;
-    min-height: 400px;
-    resize: vertical;
-    background: var(--ac-code-bg) !important;
-}
-
-label {
-    color: var(--ac-text-secondary);
-}
-
-fieldset {
-    border-color: var(--ac-border);
-}
-
-/* ============================================
-   Buttons
-   ============================================ */
-
-button[type="submit"],
-button:not(.secondary):not(.outline):not(.theme-toggle-btn) {
-    background: var(--ac-primary);
-    border-color: var(--ac-primary);
-    transition: all 0.2s ease;
-}
-
-button[type="submit"]:hover,
-button:not(.secondary):not(.outline):not(.theme-toggle-btn):hover {
-    background: var(--ac-primary-hover);
-    border-color: var(--ac-primary-hover);
-    transform: translateY(-1px);
-    box-shadow: var(--ac-shadow);
-}
-
-button.secondary.outline {
-    color: var(--ac-text-secondary);
-    border-color: var(--ac-border);
-}
-
-button.secondary.outline:hover {
-    color: var(--ac-danger);
-    border-color: var(--ac-danger);
-    background: rgba(239, 68, 68, 0.1);
-}
-
-/* ============================================
-   Code Blocks
-   ============================================ */
-
-pre code {
-    display: block;
-    max-height: 60vh;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    background: var(--ac-code-bg);
-    color: var(--ac-text-primary);
-    border-radius: 6px;
-}
-
-code {
-    background: var(--ac-code-bg);
-    padding: 0.15rem 0.4rem;
-    border-radius: 4px;
-    font-size: 0.875em;
-}
-
-/* ============================================
-   Action Row & Dropdown Menu
-   ============================================ */
-
-.action-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-wrap: nowrap;
-}
-
-.action-btn {
-    padding: 0.25rem 0.75rem !important;
-    font-size: 0.8rem !important;
-    display: inline-flex !important;
-    align-items: center;
-    white-space: nowrap;
-    margin: 0 !important;
-}
-
-.dropdown {
-    position: relative;
-    display: inline-block;
-}
-
-.dropdown-menu {
-    display: none;
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    min-width: 120px;
-    background: var(--ac-bg-secondary);
-    border: 1px solid var(--ac-border);
-    border-radius: 8px;
-    box-shadow: var(--ac-shadow-lg);
-    padding: 4px;
-    z-index: 100;
-    animation: dropdownFadeIn 0.12s ease;
-}
-
-.dropdown.open .dropdown-menu {
-    display: block;
-}
-
-.dropdown-item {
-    all: unset;
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-    padding: 0.4rem 0.75rem;
-    font-size: 0.8rem;
-    color: var(--ac-text-primary);
-    cursor: pointer;
-    border-radius: 5px;
-    transition: background 0.1s ease;
-}
-
-.dropdown-item:hover {
-    background: var(--ac-hover-overlay);
-    color: var(--ac-text-primary);
-}
-
-@keyframes dropdownFadeIn {
-    from { opacity: 0; transform: translateY(-4px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-.install-result {
-    font-size: 0.75rem;
-    margin-top: 0.35rem;
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
-    word-break: break-all;
-}
-
-/* ============================================
-   Status Messages
-   ============================================ */
-
-.success {
-    color: var(--ac-success);
-}
-
-.error {
-    color: var(--ac-danger);
-}
-
-/* ============================================
-   AAP Status Indicator
-   ============================================ */
-
-.aap-status {
+.ac-aap-dot {
     display: inline-block;
     font-size: 0.6rem;
     margin-left: 0.25rem;
     vertical-align: middle;
 }
 
-.aap-status.connected {
-    color: var(--ac-success);
+.ac-aap-dot--connected {
+    color: var(--pf-t--global--icon--color--status--success--default);
 }
 
-.aap-status.configured {
-    color: var(--ac-warning);
+.ac-aap-dot--configured {
+    color: var(--pf-t--global--icon--color--status--warning--default);
 }
 
-.aap-env-table code {
-    font-size: 0.85em;
-}
+/* ============================================
+   AAP Environment Table
+   ============================================ */
 
-.aap-env-value {
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+.ac-env-value {
+    font-family: var(--pf-t--global--font--family--mono);
     font-size: 0.85em;
     word-break: break-all;
 }
 
-.aap-env-masked {
-    color: var(--ac-text-muted);
+.ac-env-masked {
+    color: var(--pf-t--global--text--color--subtle);
     font-style: italic;
+}
+
+/* ============================================
+   Dropdown Menu (Install)
+   ============================================ */
+
+.ac-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.ac-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 140px;
+    background: var(--pf-t--global--background--color--primary--default);
+    border: 1px solid var(--pf-t--global--border--color--default);
+    border-radius: var(--pf-t--global--border--radius--small);
+    box-shadow: var(--pf-t--global--box-shadow--md);
+    padding: 4px;
+    z-index: 100;
+    animation: ac-dropdownFadeIn 0.12s ease;
+}
+
+.ac-dropdown.open .ac-dropdown-menu {
+    display: block;
+}
+
+.ac-dropdown-item {
+    all: unset;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.85rem;
+    color: var(--pf-t--global--text--color--regular);
+    cursor: pointer;
+    border-radius: var(--pf-t--global--border--radius--small);
+    transition: background 0.1s ease;
+}
+
+.ac-dropdown-item:hover {
+    background: var(--pf-t--global--background--color--secondary--default);
+}
+
+@keyframes ac-dropdownFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================
+   Action Row
+   ============================================ */
+
+.ac-action-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: nowrap;
+}
+
+.ac-install-result {
+    font-size: 0.75rem;
+    margin-top: 0.35rem;
+    font-family: var(--pf-t--global--font--family--mono);
+    word-break: break-all;
+}
+
+/* ============================================
+   Status Helpers
+   ============================================ */
+
+.ac-success {
+    color: var(--pf-t--global--icon--color--status--success--default);
+}
+
+.ac-error {
+    color: var(--pf-t--global--icon--color--status--danger--default);
+}
+
+.ac-warning {
+    color: var(--pf-t--global--icon--color--status--warning--default);
+}
+
+.ac-muted {
+    color: var(--pf-t--global--text--color--subtle);
 }
 
 /* ============================================
@@ -545,82 +210,81 @@ code {
 .htmx-request.htmx-indicator { display: inline; }
 
 /* ============================================
+   Code Block Overrides
+   ============================================ */
+
+pre.ac-code {
+    max-height: 60vh;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--pf-t--global--background--color--secondary--default);
+    padding: 1rem;
+    border-radius: var(--pf-t--global--border--radius--small);
+    border: 1px solid var(--pf-t--global--border--color--default);
+    font-family: var(--pf-t--global--font--family--mono);
+    font-size: 0.875rem;
+}
+
+/* ============================================
    Preview Pane
    ============================================ */
 
 #preview-pane {
     min-height: 200px;
-    background: var(--ac-bg-tertiary);
-    border-radius: 8px;
+    max-height: 80vh;
+    overflow: auto;
+    background: var(--pf-t--global--background--color--secondary--default);
+    border-radius: var(--pf-t--global--border--radius--small);
     padding: 1rem;
-    border: 1px solid var(--ac-border);
+    border: 1px solid var(--pf-t--global--border--color--default);
+}
+
+#preview-pane pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Prevent preview card from blowing out the grid */
+.pf-v6-l-grid > * {
+    min-width: 0;
 }
 
 /* ============================================
    Footer
    ============================================ */
 
-footer.container {
-    border-top: 1px solid var(--ac-border);
-    padding-top: 1rem;
+.ac-footer {
+    border-top: 1px solid var(--pf-t--global--border--color--default);
     margin-top: 2rem;
-    color: var(--ac-text-muted);
-    transition: border-color 0.3s ease;
+    color: var(--pf-t--global--text--color--subtle);
 }
 
 /* ============================================
-   Scrollbar Styling
+   Page Content
    ============================================ */
 
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+.ac-page-header {
+    margin-bottom: 1.5rem;
 }
 
-::-webkit-scrollbar-track {
-    background: var(--ac-scrollbar-track);
-    border-radius: 4px;
+.ac-page-header h1,
+.ac-page-header h2 {
+    margin-bottom: 0.25rem;
 }
 
-::-webkit-scrollbar-thumb {
-    background: var(--ac-scrollbar-thumb);
-    border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: var(--ac-text-muted);
+.ac-page-header p {
+    color: var(--pf-t--global--text--color--subtle);
+    margin-top: 0;
 }
 
 /* ============================================
-   Animations
-   ============================================ */
-
-@keyframes fadeSlideIn {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-/* ============================================
-   Responsive Adjustments
+   Responsive
    ============================================ */
 
 @media (max-width: 768px) {
-    nav.container {
-        padding: 0.5rem 1rem;
-    }
-
-    .theme-toggle-btn .theme-label {
+    .ac-theme-toggle .theme-label {
         display: none;
     }
 }

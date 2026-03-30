@@ -2,12 +2,14 @@
 {% block title_suffix %} - {{ name }}{% endblock %}
 
 {% block content %}
-<hgroup>
+<div class="ac-page-header">
     <h1>{{ name }}</h1>
     <p><a href="/skills">&larr; Back to Skills Library</a></p>
-</hgroup>
+</div>
 
-<article>
-    <pre><code>{{ content }}</code></pre>
-</article>
+<div class="pf-v6-c-card">
+    <div class="pf-v6-c-card__body">
+        <pre class="ac-code"><code>{{ content }}</code></pre>
+    </div>
+</div>
 {% endblock %}

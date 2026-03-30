@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="pf-v6-theme-dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,51 +8,57 @@
         (function() {
             var saved = localStorage.getItem('ansibleclaw-theme');
             if (saved === 'light') {
-                document.documentElement.setAttribute('data-theme', 'light');
-            } else if (saved === 'dark') {
-                // dark is default (no attribute needed)
-            } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
-                document.documentElement.setAttribute('data-theme', 'light');
+                document.documentElement.classList.remove('pf-v6-theme-dark');
+            } else if (!saved && window.matchMedia('(prefers-color-scheme: light)').matches) {
+                document.documentElement.classList.remove('pf-v6-theme-dark');
             }
         })();
     </script>
     <link rel="icon" type="image/png" href="/static/logo.png">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@patternfly/patternfly@6/patternfly.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@patternfly/patternfly@6/patternfly-addons.css">
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-    <style>:root { --pico-font-size: 16px; }</style>
 </head>
 <body>
-    <nav class="container">
-        <ul>
-            <li>
-                <a href="/skills" class="nav-brand">
-                    <img src="/static/logo.png" alt="AnsibleClaw" class="nav-logo">
-                    <strong>AnsibleClaw</strong>
-                </a>
-            </li>
-        </ul>
-        <ul>
-            <li><a href="/skills" {% if page == "skills" %}aria-current="page"{% endif %}>Skills</a></li>
-            <li><a href="/search" {% if page == "search" %}aria-current="page"{% endif %}>Search</a></li>
-            <li><a href="/generate" {% if page == "generate" %}aria-current="page"{% endif %}>Generate</a></li>
-            <li><a href="/aap" {% if page == "aap" %}aria-current="page"{% endif %}>AAP {% if aap_connected %}<span class="aap-status connected" title="AAP Connected">&#9679;</span>{% elif aap_configured %}<span class="aap-status configured" title="AAP Configured (not verified)">&#9679;</span>{% endif %}</a></li>
-            <li>
-                <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle theme">
-                    <span class="theme-icon"></span>
-                    <span class="theme-label"></span>
-                </button>
-            </li>
-        </ul>
-    </nav>
+    <div class="pf-v6-c-page">
+        <header class="ac-masthead" id="page-masthead">
+            <a href="/skills" class="ac-masthead__brand">
+                <img src="/static/logo.png" alt="AnsibleClaw" class="ac-nav-logo">
+                <span class="ac-brand-text">AnsibleClaw</span>
+            </a>
+            <nav class="pf-v6-c-nav pf-m-horizontal" aria-label="Global">
+                <ul class="pf-v6-c-nav__list">
+                    <li class="pf-v6-c-nav__item">
+                        <a href="/skills" class="pf-v6-c-nav__link{% if page == 'skills' %} pf-m-current{% endif %}" {% if page == "skills" %}aria-current="page"{% endif %}>Skills</a>
+                    </li>
+                    <li class="pf-v6-c-nav__item">
+                        <a href="/search" class="pf-v6-c-nav__link{% if page == 'search' %} pf-m-current{% endif %}" {% if page == "search" %}aria-current="page"{% endif %}>Search</a>
+                    </li>
+                    <li class="pf-v6-c-nav__item">
+                        <a href="/generate" class="pf-v6-c-nav__link{% if page == 'generate' %} pf-m-current{% endif %}" {% if page == "generate" %}aria-current="page"{% endif %}>Generate</a>
+                    </li>
+                    <li class="pf-v6-c-nav__item">
+                        <a href="/aap" class="pf-v6-c-nav__link{% if page == 'aap' %} pf-m-current{% endif %}" {% if page == "aap" %}aria-current="page"{% endif %}>AAP {% if aap_connected %}<span class="ac-aap-dot ac-aap-dot--connected" title="AAP Connected">&#9679;</span>{% elif aap_configured %}<span class="ac-aap-dot ac-aap-dot--configured" title="AAP Configured (not verified)">&#9679;</span>{% endif %}</a>
+                    </li>
+                </ul>
+            </nav>
+            <button id="theme-toggle" class="pf-v6-c-button pf-m-plain ac-theme-toggle" type="button" title="Toggle theme">
+                <span class="theme-icon"></span>
+                <span class="theme-label"></span>
+            </button>
+        </header>
 
-    <main class="container">
-        {% block content %}{% endblock %}
-    </main>
+        <main class="pf-v6-c-page__main" id="main-content">
+            <section class="pf-v6-c-page__main-section">
+                {% block content %}{% endblock %}
+            </section>
 
-    <footer class="container">
-        <small>AnsibleClaw &mdash; Ansible skill generation for AI agents</small>
-    </footer>
+            <footer class="pf-v6-c-page__main-section ac-footer">
+                <small>AnsibleClaw &mdash; Ansible skill generation for AI agents</small>
+            </footer>
+        </main>
+    </div>
 
     <script>
     (function() {
@@ -60,33 +66,33 @@
         var icon = btn.querySelector('.theme-icon');
         var label = btn.querySelector('.theme-label');
 
-        function getTheme() {
-            return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+        function isDark() {
+            return document.documentElement.classList.contains('pf-v6-theme-dark');
         }
 
-        function applyUI(theme) {
-            if (theme === 'light') {
-                icon.textContent = '\u25D1';
-                label.textContent = 'Light';
-            } else {
+        function applyUI() {
+            if (isDark()) {
                 icon.textContent = '\u25D0';
                 label.textContent = 'Dark';
+            } else {
+                icon.textContent = '\u25D1';
+                label.textContent = 'Light';
             }
         }
 
         function toggle() {
-            var current = getTheme();
-            var next = current === 'dark' ? 'light' : 'dark';
-            if (next === 'light') {
-                document.documentElement.setAttribute('data-theme', 'light');
+            var dark = isDark();
+            if (dark) {
+                document.documentElement.classList.remove('pf-v6-theme-dark');
+                localStorage.setItem('ansibleclaw-theme', 'light');
             } else {
-                document.documentElement.removeAttribute('data-theme');
+                document.documentElement.classList.add('pf-v6-theme-dark');
+                localStorage.setItem('ansibleclaw-theme', 'dark');
             }
-            localStorage.setItem('ansibleclaw-theme', next);
-            applyUI(next);
+            applyUI();
         }
 
-        applyUI(getTheme());
+        applyUI();
         btn.addEventListener('click', toggle);
     })();
     </script>
