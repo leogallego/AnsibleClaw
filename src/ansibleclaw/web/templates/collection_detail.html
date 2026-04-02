@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title_suffix %} - {{ collection.fqcn }}{% endblock %}
+
+{% block content %}
+<div class="ac-page-header">
+    <h1><code>{{ collection.fqcn }}</code></h1>
+    {% if collection.version %}
+    <p>Version {{ collection.version }}
+        {% if collection.path %}<small style="margin-left:1em;">{{ collection.path }}</small>{% endif %}
+    </p>
+    {% endif %}
+</div>
+
+<div style="margin-bottom:1rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
+    <a href="/collections" class="pf-v6-c-button pf-m-link pf-m-small">&larr; All Collections</a>
+    <a href="/search?ns={{ collection.fqcn }}" class="pf-v6-c-button pf-m-secondary pf-m-small">
+        Search in this collection
+    </a>
+    <button type="button" class="pf-v6-c-button pf-m-secondary pf-m-small"
+            hx-post="/api/generate-collection-overview"
+            hx-vals='{"collection": "{{ collection.fqcn }}"}'
+            hx-target="#batch-result"
+            hx-swap="innerHTML"
+            hx-indicator="#batch-spinner">
+        Generate Collection Skill
+    </button>
+    <button type="button" class="pf-v6-c-button pf-m-secondary pf-m-small" id="btn-toggle-collection-deploy"
+            onclick="var c=document.getElementById('aap-collection-deploy-section');c.style.display=c.style.display==='none'?'':'none';">
+        Deploy Collection to AAP
+    </button>
+</div>
+
+<div id="aap-collection-deploy-section" style="display:none;">
+    {% with deploy_target="collection", deploy_name=collection.fqcn, collection_fqcn=collection.fqcn, deploy_action="/api/aap/deploy-collection" %}
+    {% include "_aap_deploy_form.html" %}
+    {% endwith %}
+</div>
+
+<div class="pf-v6-c-form__group" style="margin-bottom:1rem;">
+    <span class="pf-v6-c-form-control">
+        <input type="search" id="module-filter"
+               placeholder="Filter modules..." autofocus>
+    </span>
+</div>
+
+{% if modules %}
+<form id="batch-form" hx-post="/api/generate-batch" hx-target="#batch-result" hx-swap="innerHTML" hx-indicator="#batch-spinner">
+    <div style="margin-bottom:0.75rem;display:flex;align-items:center;gap:0.75rem;">
+        <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;">
+            <input type="checkbox" id="select-all"> <span>Select All</span>
+        </label>
+        <button type="submit" class="pf-v6-c-button pf-m-primary pf-m-small" id="btn-generate-selected" disabled>
+            Generate Selected
+        </button>
+        <span id="selected-count" style="color:var(--pf-t--global--text--color--subtle);font-size:0.875rem;"></span>
+    </div>
+
+    <table class="pf-v6-c-table pf-m-grid-md" role="grid" aria-label="Modules in {{ collection.fqcn }}">
+        <thead>
+            <tr role="row">
+                <th role="columnheader" scope="col" style="width:2.5rem;"></th>
+                <th role="columnheader" scope="col">Module</th>
+                <th role="columnheader" scope="col">Description</th>
+                <th role="columnheader" scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody role="rowgroup">
+            {% for name, desc in modules.items() | sort %}
+            <tr role="row">
+                <td role="cell">
+                    <input type="checkbox" name="modules" value="{{ name }}" class="module-cb">
+                </td>
+                <td role="cell" data-label="Module"><code>{{ name }}</code></td>
+                <td role="cell" data-label="Description">{{ desc or "" }}</td>
+                <td role="cell" data-label="Actions">
+                    <div class="ac-action-row">
+                        <button type="button"
+                            class="pf-v6-c-button pf-m-secondary pf-m-small"
+                            hx-get="/search/detail/{{ name }}"
+                            hx-target="#module-detail"
+                            hx-swap="innerHTML">
+                            Details
+                        </button>
+                        <a href="/generate?module={{ name }}" class="pf-v6-c-button pf-m-link pf-m-small">
+                            Generate Skill
+                        </a>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</form>
+<p style="margin-top:0.5rem;"><small>{{ modules | length }} module(s).</small></p>
+{% else %}
+<p>No modules found in this collection.</p>
+{% endif %}
+
+<span id="batch-spinner" class="htmx-indicator" aria-busy="true">Generating...</span>
+<div id="batch-result" style="margin-top:1rem;"></div>
+<div id="module-detail" style="margin-top:1rem;"></div>
+
+<script>
+(function() {
+    var filter = document.getElementById('module-filter');
+    var selectAll = document.getElementById('select-all');
+    var btn = document.getElementById('btn-generate-selected');
+    var countEl = document.getElementById('selected-count');
+
+    function getCheckboxes() {
+        return document.querySelectorAll('.module-cb');
+    }
+
+    function updateCount() {
+        var checked = document.querySelectorAll('.module-cb:checked').length;
+        btn.disabled = checked === 0;
+        countEl.textContent = checked > 0 ? checked + ' selected' : '';
+        var cbs = getCheckboxes();
+        var visible = 0;
+        for (var i = 0; i < cbs.length; i++) {
+            if (cbs[i].closest('tr').style.display !== 'none') visible++;
+        }
+        selectAll.checked = checked > 0 && checked === visible;
+        selectAll.indeterminate = checked > 0 && checked < visible;
+    }
+
+    if (filter) {
+        filter.addEventListener('input', function() {
+            var q = this.value.toLowerCase();
+            var rows = document.querySelectorAll('tbody tr');
+            for (var i = 0; i < rows.length; i++) {
+                rows[i].style.display = rows[i].textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+            }
+            updateCount();
+        });
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            var cbs = getCheckboxes();
+            for (var i = 0; i < cbs.length; i++) {
+                if (cbs[i].closest('tr').style.display !== 'none') {
+                    cbs[i].checked = selectAll.checked;
+                }
+            }
+            updateCount();
+        });
+    }
+
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('module-cb')) updateCount();
+    });
+})();
+</script>
+{% endblock %}

@@ -9,6 +9,10 @@
 - name: "{{ short_description }}"
   hosts: all
   become: true
+{% if collection_fqcn %}
+  collections:
+    - {{ collection_fqcn }}
+{% endif %}
   tasks:
 {% if examples %}
 {{ examples | indent(4, first=true) }}

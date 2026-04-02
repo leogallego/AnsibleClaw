@@ -7,6 +7,7 @@ for skill generation.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -35,12 +36,17 @@ def _run_ansible_doc(*args: str) -> str:
     """Execute ansible-doc with the given arguments and return stdout."""
     ansible_doc = _find_ansible_doc()
     cmd = [ansible_doc, *args]
+    env = None
+    from ansibleclaw.config import COLLECTIONS_PATH
+    if COLLECTIONS_PATH:
+        env = {**os.environ, "ANSIBLE_COLLECTIONS_PATH": COLLECTIONS_PATH}
     try:
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=60,
+            env=env,
         )
     except FileNotFoundError:
         raise AnsibleDocError(
@@ -181,3 +187,162 @@ def extract_module_metadata(module_doc: dict[str, Any]) -> dict[str, Any]:
         "params": extract_params(module_doc),
         "examples": extract_examples(module_doc),
     }
+
+
+# ---------------------------------------------------------------------------
+# Fallback resolution: local ansible-doc -> Galaxy API
+# ---------------------------------------------------------------------------
+
+def resolve_module_doc(
+    module_name: str,
+    collection_version: str | None = None,
+    auto_install: bool = False,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Resolve module documentation with a fallback chain.
+
+    1. Try local ``ansible-doc`` (ground truth).
+    2. If *auto_install* is True, attempt ``ansible-galaxy collection install``
+       and retry local.
+    3. Fall back to Galaxy REST API.
+
+    Returns ``(module_doc, meta)`` where *meta* contains at minimum
+    ``{"doc_source": "local"|"galaxy"}`` plus optional ``doc_version``
+    and ``doc_warning`` when Galaxy was used.
+    """
+    try:
+        doc = get_module_doc(module_name)
+        return doc, {"doc_source": "local"}
+    except AnsibleDocError as local_err:
+        pass
+
+    if auto_install:
+        collection_fqcn = _extract_collection_fqcn(module_name)
+        if collection_fqcn:
+            try:
+                install_collection(collection_fqcn)
+                doc = get_module_doc(module_name)
+                return doc, {"doc_source": "local"}
+            except (AnsibleDocError, subprocess.SubprocessError):
+                pass
+
+    try:
+        from ansibleclaw.core.galaxy import GalaxyDocProvider, detect_pinned_version
+        provider = GalaxyDocProvider()
+        version = collection_version or detect_pinned_version(module_name)
+        return provider.fetch_module_doc(module_name, version=version)
+    except Exception as galaxy_err:
+        raise AnsibleDocError(
+            f"Module documentation unavailable.\n"
+            f"  Local:  {local_err}\n"
+            f"  Galaxy: {galaxy_err}\n"
+            f"Hint: install the collection with "
+            f"ansible-galaxy collection install "
+            f"{_extract_collection_fqcn(module_name) or module_name}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Collection management helpers
+# ---------------------------------------------------------------------------
+
+def _extract_collection_fqcn(module_name: str) -> str:
+    """Extract ``namespace.collection`` from a module FQCN."""
+    parts = module_name.split(".")
+    if len(parts) >= 3 and f"{parts[0]}.{parts[1]}" != "ansible.builtin":
+        return f"{parts[0]}.{parts[1]}"
+    return ""
+
+
+def install_collection(collection_fqcn: str, version: str | None = None) -> None:
+    """Install a collection via ``ansible-galaxy collection install``."""
+    galaxy_bin = Path(sys.executable).parent / "ansible-galaxy"
+    if not galaxy_bin.exists():
+        found = shutil.which("ansible-galaxy")
+        if not found:
+            raise AnsibleDocError("ansible-galaxy not found")
+        galaxy_bin = Path(found)
+
+    target = f"{collection_fqcn}:{version}" if version else collection_fqcn
+    cmd = [str(galaxy_bin), "collection", "install", target, "--force"]
+    env = None
+    from ansibleclaw.config import COLLECTIONS_PATH
+    if COLLECTIONS_PATH:
+        env = {**os.environ, "ANSIBLE_COLLECTIONS_PATH": COLLECTIONS_PATH}
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=120, env=env,
+    )
+    if result.returncode != 0:
+        raise AnsibleDocError(
+            f"ansible-galaxy collection install failed: {result.stderr.strip()}"
+        )
+
+
+def uninstall_collection(collection_fqcn: str) -> None:
+    """Remove an installed collection by deleting its directory."""
+    collections = list_collections()
+    target = None
+    for c in collections:
+        if c["fqcn"] == collection_fqcn:
+            target = c
+            break
+    if target is None:
+        raise AnsibleDocError(f"Collection '{collection_fqcn}' is not installed.")
+
+    parts = collection_fqcn.split(".", 1)
+    if len(parts) != 2:
+        raise AnsibleDocError(f"Invalid collection FQCN: {collection_fqcn}")
+
+    coll_dir = Path(target["path"]) / parts[0] / parts[1]
+    if not coll_dir.exists():
+        raise AnsibleDocError(f"Collection directory not found: {coll_dir}")
+
+    shutil.rmtree(coll_dir)
+
+
+def list_collections() -> list[dict[str, str]]:
+    """List installed collections via ``ansible-galaxy collection list``.
+
+    Returns a list of dicts with keys: namespace, name, version, path.
+    """
+    galaxy_bin = Path(sys.executable).parent / "ansible-galaxy"
+    if not galaxy_bin.exists():
+        found = shutil.which("ansible-galaxy")
+        if not found:
+            raise AnsibleDocError("ansible-galaxy not found")
+        galaxy_bin = Path(found)
+
+    cmd = [str(galaxy_bin), "collection", "list", "--format", "json"]
+    env = None
+    from ansibleclaw.config import COLLECTIONS_PATH
+    if COLLECTIONS_PATH:
+        env = {**os.environ, "ANSIBLE_COLLECTIONS_PATH": COLLECTIONS_PATH}
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60, env=env,
+        )
+    except subprocess.TimeoutExpired:
+        raise AnsibleDocError("ansible-galaxy collection list timed out")
+
+    if result.returncode != 0:
+        raise AnsibleDocError(
+            f"ansible-galaxy collection list failed: {result.stderr.strip()}"
+        )
+
+    try:
+        raw = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise AnsibleDocError(f"Failed to parse collection list JSON: {exc}")
+
+    collections: list[dict[str, str]] = []
+    for path, entries in raw.items():
+        for fqcn, info in entries.items():
+            parts = fqcn.split(".", 1)
+            collections.append({
+                "namespace": parts[0] if len(parts) > 1 else "",
+                "name": parts[1] if len(parts) > 1 else fqcn,
+                "fqcn": fqcn,
+                "version": info.get("version", ""),
+                "path": path,
+            })
+    collections.sort(key=lambda c: c["fqcn"])
+    return collections

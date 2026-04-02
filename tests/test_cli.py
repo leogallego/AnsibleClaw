@@ -6,7 +6,12 @@ from unittest.mock import patch
 
 import pytest
 
-from ansibleclaw.cli import _build_example_args, _extract_example_values, _module_to_skill_name
+from ansibleclaw.cli import (
+    _build_example_args,
+    _collection_fqcn,
+    _extract_example_values,
+    _module_to_skill_name,
+)
 
 
 class TestModuleToSkillName:
@@ -14,10 +19,34 @@ class TestModuleToSkillName:
         assert _module_to_skill_name("ansible.builtin.package") == "ansible_package"
 
     def test_community_module(self):
-        assert _module_to_skill_name("community.general.redis") == "ansible_redis"
+        assert _module_to_skill_name("community.general.redis") == "ansible_general_redis"
 
     def test_deeply_nested_module(self):
-        assert _module_to_skill_name("community.docker.docker_container") == "ansible_docker_container"
+        assert _module_to_skill_name("community.docker.docker_container") == "ansible_docker_docker_container"
+
+    def test_ansible_posix_not_treated_as_builtin(self):
+        assert _module_to_skill_name("ansible.posix.acl") == "ansible_posix_acl"
+
+    def test_no_collision_across_collections(self):
+        builtin = _module_to_skill_name("ansible.builtin.copy")
+        community = _module_to_skill_name("community.general.copy")
+        assert builtin != community
+        assert builtin == "ansible_copy"
+        assert community == "ansible_general_copy"
+
+
+class TestCollectionFqcn:
+    def test_builtin_returns_empty(self):
+        assert _collection_fqcn("ansible.builtin.package") == ""
+
+    def test_community_collection(self):
+        assert _collection_fqcn("community.general.redis") == "community.general"
+
+    def test_ansible_posix(self):
+        assert _collection_fqcn("ansible.posix.acl") == "ansible.posix"
+
+    def test_short_name_returns_empty(self):
+        assert _collection_fqcn("package") == ""
 
 
 class TestExtractExampleValues:
@@ -82,16 +111,25 @@ class TestBuildExampleArgs:
 
 
 class TestCmdGenerate:
-    def test_end_to_end(self, tmp_path, sample_module_doc_json):
-        """Full generate pipeline with mocked ansible-doc."""
+    def _mock_resolve(self, sample_module_doc):
+        """Return a mock for resolve_module_doc returning local docs."""
+        return patch(
+            "ansibleclaw.cli.resolve_module_doc",
+            return_value=(sample_module_doc, {"doc_source": "local"}),
+        )
+
+    def test_end_to_end(self, tmp_path, sample_module_doc):
+        """Full generate pipeline with mocked resolve_module_doc."""
         from ansibleclaw.cli import cmd_generate
         import argparse
 
-        with patch("ansibleclaw.core.parser._run_ansible_doc", return_value=sample_module_doc_json):
+        with self._mock_resolve(sample_module_doc):
             args = argparse.Namespace(
                 module="ansible.builtin.package",
                 install=None,
                 output=str(tmp_path),
+                auto_install=False,
+                collection_version=None,
             )
             cmd_generate(args)
 
@@ -107,16 +145,18 @@ class TestCmdGenerate:
         assert "## Parameters" in content
         assert "## Inventory" in content
 
-    def test_generates_aap_run_script(self, tmp_path, sample_module_doc_json):
+    def test_generates_aap_run_script(self, tmp_path, sample_module_doc):
         """Generate pipeline produces scripts/aap_run.py."""
         from ansibleclaw.cli import cmd_generate
         import argparse
 
-        with patch("ansibleclaw.core.parser._run_ansible_doc", return_value=sample_module_doc_json):
+        with self._mock_resolve(sample_module_doc):
             args = argparse.Namespace(
                 module="ansible.builtin.package",
                 install=None,
                 output=str(tmp_path),
+                auto_install=False,
+                collection_version=None,
             )
             cmd_generate(args)
 
@@ -130,16 +170,18 @@ class TestCmdGenerate:
         assert "job_templates" in content
         assert aap_script.stat().st_mode & 0o111, "aap_run.py should be executable"
 
-    def test_skill_md_has_aap_section(self, tmp_path, sample_module_doc_json):
+    def test_skill_md_has_aap_section(self, tmp_path, sample_module_doc):
         """Generated SKILL.md includes the AAP production execution section."""
         from ansibleclaw.cli import cmd_generate
         import argparse
 
-        with patch("ansibleclaw.core.parser._run_ansible_doc", return_value=sample_module_doc_json):
+        with self._mock_resolve(sample_module_doc):
             args = argparse.Namespace(
                 module="ansible.builtin.package",
                 install=None,
                 output=str(tmp_path),
+                auto_install=False,
+                collection_version=None,
             )
             cmd_generate(args)
 
@@ -149,17 +191,37 @@ class TestCmdGenerate:
         assert "## Local Execution (CLI)" in content
         assert "AAP_CONTROLLER_URL" in content
 
-    def test_install_flag(self, tmp_path, sample_module_doc_json):
+    def test_builtin_no_collection_requirement(self, tmp_path, sample_module_doc):
+        """Builtin modules should not have a Collection Requirement section."""
+        from ansibleclaw.cli import cmd_generate
+        import argparse
+
+        with self._mock_resolve(sample_module_doc):
+            args = argparse.Namespace(
+                module="ansible.builtin.package",
+                install=None,
+                output=str(tmp_path),
+                auto_install=False,
+                collection_version=None,
+            )
+            cmd_generate(args)
+
+        content = (tmp_path / "ansible_package" / "SKILL.md").read_text()
+        assert "## Collection Requirement" not in content
+
+    def test_install_flag(self, tmp_path, sample_module_doc):
         """Generate with --install writes to the platform directory."""
         from ansibleclaw.cli import cmd_generate
         import argparse
 
-        with patch("ansibleclaw.core.parser._run_ansible_doc", return_value=sample_module_doc_json), \
+        with self._mock_resolve(sample_module_doc), \
              patch("ansibleclaw.cli.INSTALL_PATHS", {"testplatform": tmp_path}):
             args = argparse.Namespace(
                 module="ansible.builtin.package",
                 install="testplatform",
                 output=None,
+                auto_install=False,
+                collection_version=None,
             )
             cmd_generate(args)
 

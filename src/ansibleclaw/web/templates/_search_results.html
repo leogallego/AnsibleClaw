@@ -1,32 +1,63 @@
-<table class="pf-v6-c-table pf-m-grid-md" role="grid" aria-label="Search results">
-    <thead>
-        <tr role="row">
-            <th role="columnheader" scope="col">Module</th>
-            <th role="columnheader" scope="col">Description</th>
-            <th role="columnheader" scope="col">Actions</th>
-        </tr>
-    </thead>
-    <tbody role="rowgroup">
-        {% for name, desc in results.items() | sort %}
-        <tr role="row">
-            <td role="cell" data-label="Module"><code>{{ name }}</code></td>
-            <td role="cell" data-label="Description">{{ desc or "" }}</td>
-            <td role="cell" data-label="Actions">
-                <div class="ac-action-row">
-                    <button
-                        class="pf-v6-c-button pf-m-secondary pf-m-small"
-                        hx-get="/search/detail/{{ name }}"
-                        hx-target="#module-detail"
-                        hx-swap="innerHTML">
-                        Details
-                    </button>
-                    <a href="/generate?module={{ name }}" class="pf-v6-c-button pf-m-link pf-m-small">
-                        Generate Skill
-                    </a>
-                </div>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+{% set grouped = {} %}
+{% for name, desc in results.items() | sort %}
+{% set parts = name.split('.') %}
+{% set coll = parts[0] ~ '.' ~ parts[1] if parts | length >= 3 else 'other' %}
+{% if coll not in grouped %}
+{% set _ = grouped.update({coll: []}) %}
+{% endif %}
+{% set _ = grouped[coll].append((name, desc)) %}
+{% endfor %}
+
+{% for coll, modules in grouped.items() | sort %}
+<div class="ac-collection-group" style="margin-bottom:1.5rem;">
+    <h4 style="margin-bottom:0.5rem;">
+        {% set coll_parts = coll.split('.') %}
+        {% if coll_parts | length == 2 %}
+        <a href="/collections/{{ coll_parts[0] }}/{{ coll_parts[1] }}" class="pf-v6-c-label pf-m-outline" style="text-decoration:none;">
+            <span class="pf-v6-c-label__content">
+                <span class="pf-v6-c-label__text">{{ coll }}</span>
+            </span>
+        </a>
+        {% else %}
+        <span class="pf-v6-c-label pf-m-outline">
+            <span class="pf-v6-c-label__content">
+                <span class="pf-v6-c-label__text">{{ coll }}</span>
+            </span>
+        </span>
+        {% endif %}
+        <small style="margin-left:0.5em;color:var(--pf-t--global--text--color--subtle);">{{ modules | length }} module(s)</small>
+    </h4>
+    <table class="pf-v6-c-table pf-m-grid-md pf-m-compact" role="grid" aria-label="Modules in {{ coll }}">
+        <thead>
+            <tr role="row">
+                <th role="columnheader" scope="col">Module</th>
+                <th role="columnheader" scope="col">Description</th>
+                <th role="columnheader" scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody role="rowgroup">
+            {% for name, desc in modules %}
+            <tr role="row">
+                <td role="cell" data-label="Module"><code>{{ name }}</code></td>
+                <td role="cell" data-label="Description">{{ desc or "" }}</td>
+                <td role="cell" data-label="Actions">
+                    <div class="ac-action-row">
+                        <button
+                            class="pf-v6-c-button pf-m-secondary pf-m-small"
+                            hx-get="/search/detail/{{ name }}"
+                            hx-target="#module-detail"
+                            hx-swap="innerHTML">
+                            Details
+                        </button>
+                        <a href="/generate?module={{ name }}" class="pf-v6-c-button pf-m-link pf-m-small">
+                            Generate Skill
+                        </a>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endfor %}
 <p style="margin-top:0.5rem;"><small>{{ results | length }} module(s) found.</small></p>

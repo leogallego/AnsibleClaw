@@ -28,3 +28,11 @@ AAP_VERIFY_SSL: bool = os.environ.get("AAP_VERIFY_SSL", "true").lower() in ("tru
 AAP_DEFAULT_INVENTORY: str = os.environ.get("AAP_DEFAULT_INVENTORY", "")
 AAP_DEFAULT_CREDENTIAL: str = os.environ.get("AAP_DEFAULT_CREDENTIAL", "")
 AAP_DEFAULT_ORGANIZATION: str = os.environ.get("AAP_DEFAULT_ORGANIZATION", "Default")
+AAP_DEFAULT_PROJECT: str = os.environ.get("AAP_DEFAULT_PROJECT", "")
+AAP_DEFAULT_EE: str = os.environ.get("AAP_DEFAULT_EE", "")
+
+# Collection resolution settings
+COLLECTIONS_PATH: str = os.environ.get("ANSIBLECLAW_COLLECTIONS_PATH", "")
+GALAXY_URL: str = os.environ.get(
+    "ANSIBLECLAW_GALAXY_URL", "https://galaxy.ansible.com"
+)

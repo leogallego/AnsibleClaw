@@ -19,8 +19,10 @@ from ansibleclaw.config import (
     AAP_CONTROLLER_TOKEN,
     AAP_CONTROLLER_URL,
     AAP_DEFAULT_CREDENTIAL,
+    AAP_DEFAULT_EE,
     AAP_DEFAULT_INVENTORY,
     AAP_DEFAULT_ORGANIZATION,
+    AAP_DEFAULT_PROJECT,
     AAP_VERIFY_SSL,
     BUILTINS_DIR,
     INSTALL_PATHS,
@@ -33,7 +35,12 @@ from ansibleclaw.core.parser import (
     AnsibleDocError,
     extract_module_metadata,
     get_module_doc,
+    install_collection,
+    list_collections,
+    list_modules,
+    resolve_module_doc,
     search_modules,
+    uninstall_collection,
 )
 
 WEB_DIR = Path(__file__).parent
@@ -104,7 +111,11 @@ def _is_builtin(name: str) -> bool:
 def _render_skill_md(metadata: dict) -> str:
     """Render skill template -- reuses the same logic as CLI."""
     from jinja2 import Environment, FileSystemLoader
-    from ansibleclaw.cli import _build_example_args, _module_to_skill_name
+    from ansibleclaw.cli import (
+        _build_example_args,
+        _collection_fqcn,
+        _module_to_skill_name,
+    )
 
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATE_PATH.parent)),
@@ -113,17 +124,25 @@ def _render_skill_md(metadata: dict) -> str:
         lstrip_blocks=True,
     )
     template = env.get_template(TEMPLATE_PATH.name)
-    skill_name = _module_to_skill_name(metadata["module_name"]).replace("ansible_", "")
+    module_name = metadata["module_name"]
+    skill_name = _module_to_skill_name(module_name).replace("ansible_", "")
     example_args = _build_example_args(metadata["params"], metadata.get("examples", ""))
 
-    return template.render(
-        module_name=metadata["module_name"],
+    ctx = dict(
+        module_name=module_name,
         skill_name=skill_name,
         short_description=metadata["short_description"],
         params=metadata["params"],
         examples=metadata["examples"].strip() if metadata["examples"] else "",
         example_args=example_args,
+        collection_fqcn=_collection_fqcn(module_name),
     )
+    doc_source = metadata.get("doc_source", "local")
+    if doc_source != "local":
+        ctx["doc_source"] = doc_source
+        ctx["doc_version"] = metadata.get("doc_version", "")
+        ctx["doc_warning"] = metadata.get("doc_warning", "")
+    return template.render(**ctx)
 
 
 # --- Routes ---
@@ -143,15 +162,33 @@ async def skills_page(request: Request):
 
 
 @app.get("/skills/{name}", response_class=HTMLResponse)
-async def skill_detail(request: Request, name: str):
+async def skill_detail(request: Request, name: str, deploy: str = ""):
     skill_dir = _resolve_skill_dir(name)
     if skill_dir is None:
         return HTMLResponse("Skill not found", status_code=404)
     content = (skill_dir / "SKILL.md").read_text()
+
+    collection_fqcn = ""
+    skill_md = skill_dir / "SKILL.md"
+    if skill_md.exists():
+        try:
+            raw = skill_md.read_text()
+            if raw.startswith("---"):
+                fm_end = raw.index("---", 3)
+                fm = yaml.safe_load(raw[3:fm_end])
+                collection_fqcn = fm.get("collection", "") if fm else ""
+        except Exception:
+            pass
+
     return TEMPLATES.TemplateResponse(request, "skill_detail.html", {
         "name": name,
         "content": content,
         "page": "skills",
+        "show_deploy": deploy == "aap",
+        "deploy_target": "skill",
+        "deploy_name": name,
+        "deploy_action": "/api/aap/deploy-skill",
+        "collection_fqcn": collection_fqcn,
     })
 
 
@@ -211,7 +248,6 @@ async def search_results(request: Request, q: str = "", ns: str = ""):
         if q:
             results = search_modules(q, namespace=ns or None)
         else:
-            from ansibleclaw.core.parser import list_modules
             results = list_modules(namespace=ns or None)
     except AnsibleDocError as exc:
         return HTMLResponse(f'<p class="ac-error">{exc}</p>')
@@ -246,12 +282,20 @@ async def generate_preview(request: Request, module: str = ""):
     if not module:
         return HTMLResponse("")
     try:
-        doc = get_module_doc(module)
+        doc, doc_meta = resolve_module_doc(module)
         metadata = extract_module_metadata(doc)
+        metadata.update(doc_meta)
         preview = _render_skill_md(metadata)
     except AnsibleDocError as exc:
         return HTMLResponse(f'<p class="ac-error">{exc}</p>')
-    return HTMLResponse(f"<pre><code>{preview}</code></pre>")
+    source_note = ""
+    if doc_meta.get("doc_source") == "galaxy":
+        ver = doc_meta.get("doc_version", "")
+        source_note = (
+            f'<p class="ac-warning">Documentation sourced from Galaxy '
+            f"(v{ver}). Install the collection locally for exact docs.</p>"
+        )
+    return HTMLResponse(f"{source_note}<pre><code>{preview}</code></pre>")
 
 
 @app.post("/generate", response_class=HTMLResponse)
@@ -261,8 +305,9 @@ async def generate_skill(
     custom_path: str = Form(""),
 ):
     try:
-        doc = get_module_doc(module)
+        doc, doc_meta = resolve_module_doc(module)
         metadata = extract_module_metadata(doc)
+        metadata.update(doc_meta)
     except AnsibleDocError as exc:
         return HTMLResponse(f'<p class="ac-error">{exc}</p>', status_code=400)
 
@@ -286,9 +331,234 @@ async def generate_skill(
             f' &mdash; <a href="/skills/{skill_name}/download">Download ZIP</a>'
         )
 
+    source_note = ""
+    if doc_meta.get("doc_source") == "galaxy":
+        source_note = " (docs from Galaxy)"
+
     return HTMLResponse(
-        f'<p class="ac-success">Skill generated: <code>{output_dir}</code>'
+        f'<p class="ac-success">Skill generated{source_note}: '
+        f"<code>{output_dir}</code>"
         f" (SKILL.md, scripts/, assets/){download_link}</p>"
+    )
+
+
+# --- Collections ---
+
+@app.get("/collections", response_class=HTMLResponse)
+async def collections_page(request: Request):
+    try:
+        collections = list_collections()
+        module_counts: dict[str, int] = {}
+        for coll in collections:
+            try:
+                modules = list_modules(namespace=coll["fqcn"])
+                module_counts[coll["fqcn"]] = len(modules)
+            except AnsibleDocError:
+                module_counts[coll["fqcn"]] = 0
+    except AnsibleDocError as exc:
+        collections = []
+        module_counts = {}
+    return TEMPLATES.TemplateResponse(request, "collections.html", {
+        "page": "collections",
+        "collections": collections,
+        "module_counts": module_counts,
+    })
+
+
+@app.get("/collections/{namespace}/{name}", response_class=HTMLResponse)
+async def collection_detail(request: Request, namespace: str, name: str):
+    fqcn = f"{namespace}.{name}"
+    try:
+        modules = list_modules(namespace=fqcn)
+    except AnsibleDocError as exc:
+        return HTMLResponse(f'<p class="ac-error">{exc}</p>', status_code=404)
+
+    coll_info: dict[str, str] = {"fqcn": fqcn, "namespace": namespace, "name": name}
+    try:
+        all_colls = list_collections()
+        for c in all_colls:
+            if c["fqcn"] == fqcn:
+                coll_info.update(c)
+                break
+    except AnsibleDocError:
+        pass
+
+    return TEMPLATES.TemplateResponse(request, "collection_detail.html", {
+        "page": "collections",
+        "collection": coll_info,
+        "modules": modules,
+    })
+
+
+@app.get("/api/collection-contents", response_class=HTMLResponse)
+async def api_collection_contents(
+    request: Request,
+    collection: str = Query(""),
+):
+    if not collection:
+        return HTMLResponse("")
+
+    source = "local"
+    version = ""
+    modules: dict[str, str] = {}
+
+    try:
+        modules = list_modules(namespace=collection)
+        source = "local"
+    except AnsibleDocError:
+        try:
+            from ansibleclaw.core.galaxy import GalaxyDocProvider, GalaxyError
+            provider = GalaxyDocProvider()
+            modules, meta = provider.list_collection_modules(collection)
+            source = "galaxy"
+            version = meta.get("version", "")
+        except Exception as exc:
+            return HTMLResponse(
+                f'<span class="ac-error">Could not fetch contents for '
+                f"{collection}: {exc}</span>"
+            )
+
+    return TEMPLATES.TemplateResponse(request, "_collection_contents.html", {
+        "collection": collection,
+        "modules": modules,
+        "source": source,
+        "version": version,
+    })
+
+
+@app.post("/api/generate-batch", response_class=HTMLResponse)
+async def api_generate_batch(request: Request):
+    form = await request.form()
+    modules = form.getlist("modules")
+    if not modules:
+        return HTMLResponse(
+            '<span class="ac-warning">No modules selected.</span>'
+        )
+
+    from ansibleclaw.cli import _module_to_skill_name, _write_skill_package
+
+    successes: list[str] = []
+    failures: list[str] = []
+    for module_name in modules:
+        try:
+            doc, doc_meta = resolve_module_doc(module_name)
+            metadata = extract_module_metadata(doc)
+            metadata.update(doc_meta)
+            skill_name = _module_to_skill_name(metadata["module_name"])
+            output_dir = SKILLS_DIR / skill_name
+            _write_skill_package(output_dir, metadata)
+            successes.append(f"{module_name} &rarr; {skill_name}")
+        except Exception as exc:
+            failures.append(f"{module_name}: {exc}")
+
+    parts: list[str] = []
+    if successes:
+        items = "".join(f"<li>{s}</li>" for s in successes)
+        parts.append(
+            f'<p class="ac-success">{len(successes)} skill(s) generated:</p>'
+            f"<ul>{items}</ul>"
+        )
+    if failures:
+        items = "".join(f"<li>{f}</li>" for f in failures)
+        parts.append(
+            f'<p class="ac-error">{len(failures)} failed:</p>'
+            f"<ul>{items}</ul>"
+        )
+    return HTMLResponse("".join(parts))
+
+
+@app.post("/api/generate-collection-overview", response_class=HTMLResponse)
+async def api_generate_collection_overview(
+    collection: str = Form(...),
+):
+    from ansibleclaw.cli import (
+        _write_collection_skill_package,
+    )
+
+    parts = collection.split(".")
+    if len(parts) != 2:
+        return HTMLResponse(
+            '<span class="ac-error">Invalid collection FQCN.</span>',
+            status_code=400,
+        )
+
+    try:
+        modules = list_modules(namespace=collection)
+    except AnsibleDocError as exc:
+        return HTMLResponse(
+            f'<span class="ac-error">{exc}</span>', status_code=400,
+        )
+
+    modules_metadata: list[dict] = []
+    for module_name in sorted(modules.keys()):
+        try:
+            doc, doc_meta = resolve_module_doc(module_name)
+            meta = extract_module_metadata(doc)
+            meta.update(doc_meta)
+            modules_metadata.append(meta)
+        except Exception:
+            modules_metadata.append({
+                "module_name": module_name,
+                "short_description": modules.get(module_name, ""),
+                "params": [],
+                "examples": "",
+            })
+
+    skill_dir_name = f"ansible_{parts[1]}"
+    output_dir = SKILLS_DIR / skill_dir_name
+    try:
+        _write_collection_skill_package(output_dir, collection, modules_metadata)
+    except Exception as exc:
+        return HTMLResponse(
+            f'<span class="ac-error">Failed: {exc}</span>', status_code=500,
+        )
+
+    return HTMLResponse(
+        f'<span class="ac-success">Collection overview skill generated: '
+        f"<code>{output_dir}</code> &mdash; "
+        f'<a href="/skills/{skill_dir_name}">View Skill</a></span>'
+    )
+
+
+@app.post("/api/install-collection", response_class=HTMLResponse)
+async def api_install_collection(
+    collection: str = Form(...),
+    version: str = Form(""),
+):
+    try:
+        install_collection(collection, version=version or None)
+    except AnsibleDocError as exc:
+        return HTMLResponse(
+            f'<span class="ac-error">Install failed: {exc}</span>',
+            status_code=400,
+        )
+    ver_str = f" {version}" if version else ""
+    return HTMLResponse(
+        content=(
+            f'<span class="ac-success">'
+            f"\u2713 Installed {collection}{ver_str}</span>"
+        ),
+        headers={"HX-Trigger-After-Settle": "collectionsUpdated"},
+    )
+
+
+@app.post("/api/uninstall-collection", response_class=HTMLResponse)
+async def api_uninstall_collection(
+    collection: str = Form(...),
+):
+    try:
+        uninstall_collection(collection)
+    except AnsibleDocError as exc:
+        return HTMLResponse(
+            f'<span class="ac-error">Uninstall failed: {exc}</span>',
+            status_code=400,
+        )
+    return HTMLResponse(
+        content=(
+            f'<span class="ac-success">'
+            f"\u2713 Uninstalled {collection}</span>"
+        ),
+        headers={"HX-Trigger-After-Settle": "collectionsUpdated"},
     )
 
 
@@ -382,3 +652,241 @@ async def aap_ping():
     if _aap_ping():
         return HTMLResponse('<span class="ac-success">Connection successful</span>')
     return HTMLResponse('<span class="ac-error">Connection failed</span>')
+
+
+# --- AAP resource listing & deployment ---
+
+def _get_aap_client():
+    from ansibleclaw.core.aap import AAPClient, AAPError
+    if not _aap_is_configured():
+        raise AAPError("AAP is not configured. Set AAP_CONTROLLER_URL and AAP_CONTROLLER_TOKEN.")
+    return AAPClient(
+        base_url=AAP_CONTROLLER_URL,
+        token=AAP_CONTROLLER_TOKEN,
+        verify_ssl=AAP_VERIFY_SSL,
+        organization=AAP_DEFAULT_ORGANIZATION,
+    )
+
+
+@app.get("/api/aap/projects")
+async def api_aap_projects():
+    try:
+        client = _get_aap_client()
+        resources = client.list_projects()
+        items = [{"id": r["id"], "name": r["name"]} for r in resources]
+        return {"items": items, "default": AAP_DEFAULT_PROJECT}
+    except Exception as exc:
+        return {"items": [], "error": str(exc)}
+
+
+@app.get("/api/aap/execution-environments")
+async def api_aap_ees():
+    try:
+        client = _get_aap_client()
+        resources = client.list_execution_environments()
+        items = [{"id": r["id"], "name": r["name"]} for r in resources]
+        return {"items": items, "default": AAP_DEFAULT_EE}
+    except Exception as exc:
+        return {"items": [], "error": str(exc)}
+
+
+@app.get("/api/aap/inventories")
+async def api_aap_inventories():
+    try:
+        client = _get_aap_client()
+        resources = client.list_inventories()
+        items = [{"id": r["id"], "name": r["name"]} for r in resources]
+        return {"items": items, "default": AAP_DEFAULT_INVENTORY}
+    except Exception as exc:
+        return {"items": [], "error": str(exc)}
+
+
+@app.get("/api/aap/credentials")
+async def api_aap_credentials():
+    try:
+        client = _get_aap_client()
+        resources = client.list_credentials()
+        items = [{"id": r["id"], "name": r["name"]} for r in resources]
+        return {"items": items, "default": AAP_DEFAULT_CREDENTIAL}
+    except Exception as exc:
+        return {"items": [], "error": str(exc)}
+
+
+@app.post("/api/aap/deploy-skill", response_class=HTMLResponse)
+async def api_aap_deploy_skill(
+    skill_name: str = Form(...),
+    job_template_name: str = Form(""),
+    project_id: str = Form(""),
+    scm_url: str = Form(""),
+    ee_id: str = Form(""),
+    inventory_id: str = Form(...),
+    credential_id: str = Form(""),
+    collection_fqcn: str = Form(""),
+):
+    from ansibleclaw.core.aap import AAPError
+
+    try:
+        client = _get_aap_client()
+    except Exception as exc:
+        return HTMLResponse(f'<span class="ac-error">{exc}</span>', status_code=400)
+
+    jt_name = job_template_name or skill_name
+
+    try:
+        actual_project_id: int
+        if project_id and project_id != "__new__":
+            actual_project_id = int(project_id)
+        elif scm_url:
+            project = client.create_project(
+                name=f"AnsibleClaw - {jt_name}",
+                scm_url=scm_url,
+            )
+            actual_project_id = project["id"]
+            try:
+                client.sync_project(actual_project_id)
+            except AAPError:
+                pass
+        else:
+            return HTMLResponse(
+                '<span class="ac-error">Select a Project or provide a Git repo URL.</span>',
+                status_code=400,
+            )
+
+        skill_dir = _resolve_skill_dir(skill_name)
+        if skill_dir and (skill_dir / "assets" / "playbook.yml").exists():
+            playbook_path = f"skills/{skill_name}/assets/playbook.yml"
+        else:
+            playbook_path = f"skills/{skill_name}/assets/playbook.yml"
+
+        result = client.create_job_template(
+            name=jt_name,
+            project_id=actual_project_id,
+            playbook=playbook_path,
+            inventory_id=int(inventory_id),
+            ee_id=int(ee_id) if ee_id else None,
+        )
+
+        template_id = result.get("id", "")
+        if credential_id:
+            try:
+                client.add_credential_to_template(template_id, int(credential_id))
+            except AAPError:
+                pass
+
+        jt_url = f"{AAP_CONTROLLER_URL}/#/templates/job_template/{template_id}/details"
+        collection_note = ""
+        if collection_fqcn:
+            collection_note = (
+                f' <small>(Ensure your EE includes <code>{collection_fqcn}</code>)</small>'
+            )
+
+        return HTMLResponse(
+            f'<span class="ac-success">'
+            f'\u2713 Job Template <strong>{jt_name}</strong> created '
+            f'(<a href="{jt_url}" target="_blank">View in AAP</a>)'
+            f'{collection_note}</span>'
+        )
+    except AAPError as exc:
+        return HTMLResponse(
+            f'<span class="ac-error">Deploy failed: {exc}</span>',
+            status_code=400,
+        )
+
+
+@app.post("/api/aap/deploy-collection", response_class=HTMLResponse)
+async def api_aap_deploy_collection(
+    collection: str = Form(...),
+    project_id: str = Form(""),
+    scm_url: str = Form(""),
+    ee_id: str = Form(""),
+    inventory_id: str = Form(...),
+    credential_id: str = Form(""),
+):
+    from ansibleclaw.core.aap import AAPError
+    from ansibleclaw.cli import _module_to_skill_name
+
+    try:
+        client = _get_aap_client()
+    except Exception as exc:
+        return HTMLResponse(f'<span class="ac-error">{exc}</span>', status_code=400)
+
+    actual_project_id: int
+    if project_id and project_id != "__new__":
+        actual_project_id = int(project_id)
+    elif scm_url:
+        try:
+            project = client.create_project(
+                name=f"AnsibleClaw - {collection}",
+                scm_url=scm_url,
+            )
+            actual_project_id = project["id"]
+            try:
+                client.sync_project(actual_project_id)
+            except AAPError:
+                pass
+        except AAPError as exc:
+            return HTMLResponse(
+                f'<span class="ac-error">Project creation failed: {exc}</span>',
+                status_code=400,
+            )
+    else:
+        return HTMLResponse(
+            '<span class="ac-error">Select a Project or provide a Git repo URL.</span>',
+            status_code=400,
+        )
+
+    try:
+        modules = list_modules(namespace=collection)
+    except AnsibleDocError as exc:
+        return HTMLResponse(
+            f'<span class="ac-error">Cannot list modules: {exc}</span>',
+            status_code=400,
+        )
+
+    successes: list[str] = []
+    failures: list[str] = []
+
+    for module_name in sorted(modules.keys()):
+        skill_dir_name = _module_to_skill_name(module_name)
+        skill_dir = _resolve_skill_dir(skill_dir_name)
+        if not skill_dir or not (skill_dir / "assets" / "playbook.yml").exists():
+            failures.append(f"{module_name}: skill not generated yet")
+            continue
+
+        jt_name = skill_dir_name.replace("_", "-")
+        playbook_path = f"skills/{skill_dir_name}/assets/playbook.yml"
+        try:
+            result = client.create_job_template(
+                name=jt_name,
+                project_id=actual_project_id,
+                playbook=playbook_path,
+                inventory_id=int(inventory_id),
+                ee_id=int(ee_id) if ee_id else None,
+            )
+            template_id = result.get("id", "")
+            if credential_id:
+                try:
+                    client.add_credential_to_template(template_id, int(credential_id))
+                except AAPError:
+                    pass
+            successes.append(f"{jt_name} (ID: {template_id})")
+        except AAPError as exc:
+            failures.append(f"{module_name}: {exc}")
+
+    parts: list[str] = []
+    if successes:
+        items = "".join(f"<li>{s}</li>" for s in successes)
+        parts.append(
+            f'<p class="ac-success">\u2713 {len(successes)} Job Template(s) created:</p>'
+            f"<ul>{items}</ul>"
+        )
+    if failures:
+        items = "".join(f"<li>{f}</li>" for f in failures)
+        parts.append(
+            f'<p class="ac-error">{len(failures)} failed:</p>'
+            f"<ul>{items}</ul>"
+        )
+    if not parts:
+        parts.append('<span class="ac-warning">No module skills found for this collection.</span>')
+
+    return HTMLResponse("".join(parts))

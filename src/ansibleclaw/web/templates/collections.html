@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Collections{% endblock %}
+
+{% block content %}
+<div class="ac-page-header">
+    <h1>Collections</h1>
+    <p>{{ collections | length }} collection(s) installed.</p>
+</div>
+
+<div class="pf-v6-c-card" style="margin-bottom:1.5rem;">
+    <div class="pf-v6-c-card__title">
+        <h3 class="pf-v6-c-card__title-text">Install Collection</h3>
+    </div>
+    <div class="pf-v6-c-card__body">
+        <form class="pf-v6-l-grid pf-m-gutter pf-m-all-4-col-on-md"
+              hx-post="/api/install-collection" hx-target="#install-result" hx-swap="innerHTML"
+              hx-indicator="#install-spinner" hx-disabled-elt="#btn-install, #btn-search">
+            <div class="pf-v6-c-form__group">
+                <label class="pf-v6-c-form__label" for="coll-name">
+                    <span class="pf-v6-c-form__label-text">Collection</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <input type="text" id="coll-name" name="collection"
+                           placeholder="e.g., community.general" required>
+                </span>
+            </div>
+            <div class="pf-v6-c-form__group">
+                <label class="pf-v6-c-form__label" for="coll-version">
+                    <span class="pf-v6-c-form__label-text">Version (optional)</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <input type="text" id="coll-version" name="version"
+                           placeholder="e.g., 9.2.0">
+                </span>
+            </div>
+            <div class="pf-v6-c-form__group" style="display:flex;align-items:flex-end;gap:0.5rem;">
+                <button type="button" id="btn-search" class="pf-v6-c-button pf-m-secondary pf-m-small"
+                        style="min-width:6rem;"
+                        hx-get="/api/collection-contents"
+                        hx-target="#search-result"
+                        hx-swap="innerHTML"
+                        hx-include="#coll-name"
+                        hx-indicator="#search-spinner"
+                        hx-vals='js:{"collection": document.getElementById("coll-name").value}'>
+                    Search
+                </button>
+                <button type="submit" id="btn-install" class="pf-v6-c-button pf-m-primary pf-m-small"
+                        style="min-width:6rem;">Install</button>
+            </div>
+        </form>
+        <span id="install-spinner" class="htmx-indicator" aria-busy="true">Installing collection&hellip; this may take a moment.</span>
+        <div id="install-result" style="margin-top:0.5rem;"></div>
+        <span id="search-spinner" class="htmx-indicator" aria-busy="true">Searching...</span>
+        <div id="search-result" style="margin-top:0.5rem;"></div>
+    </div>
+</div>
+
+<div class="pf-v6-c-form__group" style="margin-bottom:1rem;">
+    <span class="pf-v6-c-form-control">
+        <input type="search" id="coll-filter"
+               placeholder="Filter collections by name..." autofocus>
+    </span>
+</div>
+
+{% if collections %}
+<table class="pf-v6-c-table pf-m-grid-md" role="grid" aria-label="Installed collections">
+    <thead>
+        <tr role="row">
+            <th role="columnheader" scope="col">Collection</th>
+            <th role="columnheader" scope="col">Version</th>
+            <th role="columnheader" scope="col">Modules</th>
+            <th role="columnheader" scope="col">Path</th>
+            <th role="columnheader" scope="col">Actions</th>
+        </tr>
+    </thead>
+    <tbody role="rowgroup">
+        {% for coll in collections %}
+        <tr role="row">
+            <td role="cell" data-label="Collection">
+                <a href="/collections/{{ coll.namespace }}/{{ coll.name }}">
+                    <code>{{ coll.fqcn }}</code>
+                </a>
+            </td>
+            <td role="cell" data-label="Version">{{ coll.version }}</td>
+            <td role="cell" data-label="Modules">{{ module_counts.get(coll.fqcn, '-') }}</td>
+            <td role="cell" data-label="Path">
+                <small>{{ coll.path }}</small>
+            </td>
+            <td role="cell" data-label="Actions">
+                <button type="button"
+                        class="pf-v6-c-button pf-m-danger pf-m-small"
+                        hx-post="/api/uninstall-collection"
+                        hx-vals='{"collection": "{{ coll.fqcn }}"}'
+                        hx-target="closest tr"
+                        hx-swap="outerHTML"
+                        hx-confirm="Uninstall {{ coll.fqcn }}?">
+                    Uninstall
+                </button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No collections found. Install one using the form above or <code>ansible-galaxy collection install</code>.</p>
+{% endif %}
+
+<script>
+document.getElementById('coll-filter').addEventListener('input', function() {
+    var q = this.value.toLowerCase();
+    var rows = document.querySelectorAll('tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+        rows[i].style.display = rows[i].textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+    }
+});
+
+document.body.addEventListener('collectionsUpdated', function() {
+    setTimeout(function() { location.reload(); }, 1200);
+});
+</script>
+{% endblock %}

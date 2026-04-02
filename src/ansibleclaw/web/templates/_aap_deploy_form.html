@@ -1,0 +1,201 @@
+{# Reusable AAP deployment form.
+   Required context:
+     deploy_target    – "skill" or "collection"
+     deploy_name      – skill name or collection FQCN
+     collection_fqcn  – (optional) collection FQCN for EE warning
+     deploy_action    – POST URL (e.g. /api/aap/deploy-skill)
+     aap_configured   – bool, injected by middleware
+#}
+<div class="pf-v6-c-card" style="margin-top:1rem;" id="aap-deploy-card">
+    <div class="pf-v6-c-card__header">
+        <h3 class="pf-v6-c-card__header-main" style="margin:0;">Deploy to AAP</h3>
+    </div>
+    <div class="pf-v6-c-card__body">
+
+        <div style="margin-bottom:1rem;padding:0.75rem 1rem;border-radius:var(--pf-t--global--border--radius--small);background:var(--pf-t--global--background--color--secondary--default);border-left:4px solid var(--pf-t--global--color--brand--default);">
+            <p style="margin:0 0 0.25rem;font-weight:600;">
+                {% if aap_configured %}
+                &#9989; AAP Controller connected
+                {% else %}
+                Production deployment path
+                {% endif %}
+            </p>
+            <p style="margin:0;font-size:0.875rem;color:var(--pf-t--global--text--color--subtle);">
+                {% if aap_configured %}
+                Deploying this {% if deploy_target == "collection" %}collection{% else %}skill{% endif %} will create
+                {% if deploy_target == "collection" %}one Job Template per module skill{% else %}a Job Template{% endif %}
+                in your AAP Controller, linking the generated playbook with your chosen Project, Execution Environment, Inventory, and Credential.
+                {% else %}
+                Ansible Automation Platform (AAP) is the recommended way to run generated skills in production.
+                To enable deployment, set the following environment variables and restart:
+                <code style="display:block;margin-top:0.5rem;padding:0.5rem;border-radius:4px;background:var(--pf-t--global--background--color--primary--default);font-size:0.8125rem;">export AAP_CONTROLLER_URL="https://your-aap-controller"
+export AAP_CONTROLLER_TOKEN="your-oauth-token"</code>
+                <span style="display:block;margin-top:0.5rem;">
+                    Visit the <a href="/aap">AAP settings page</a> for more configuration options.
+                </span>
+                {% endif %}
+            </p>
+        </div>
+
+        {% if aap_configured %}
+        <form id="aap-deploy-form"
+              hx-post="{{ deploy_action }}"
+              hx-target="#aap-deploy-result"
+              hx-swap="innerHTML"
+              hx-indicator="#aap-deploy-spinner">
+            {% if deploy_target == "skill" %}
+            <input type="hidden" name="skill_name" value="{{ deploy_name }}">
+            {% elif deploy_target == "collection" %}
+            <input type="hidden" name="collection" value="{{ deploy_name }}">
+            {% endif %}
+            {% if collection_fqcn %}
+            <input type="hidden" name="collection_fqcn" value="{{ collection_fqcn }}">
+            {% endif %}
+
+            {# Job Template Name (skill only) #}
+            {% if deploy_target == "skill" %}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="jt-name">
+                    <span class="pf-v6-c-form__label-text">Job Template Name</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <input type="text" id="jt-name" name="job_template_name"
+                           value="{{ deploy_name | replace('_', '-') }}" required>
+                </span>
+            </div>
+            {% endif %}
+
+            {# Project #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-project">
+                    <span class="pf-v6-c-form__label-text">Project</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <select id="aap-project" name="project_id">
+                        <option value="">Loading...</option>
+                    </select>
+                </span>
+            </div>
+
+            {# New Project fields (hidden by default) #}
+            <div id="new-project-fields" style="display:none;margin-bottom:0.75rem;padding-left:1rem;border-left:3px solid var(--pf-t--global--border--color--default);">
+                <div class="pf-v6-c-form__group" style="margin-bottom:0.5rem;">
+                    <label class="pf-v6-c-form__label" for="scm-url">
+                        <span class="pf-v6-c-form__label-text">Git Repo URL</span>
+                    </label>
+                    <span class="pf-v6-c-form-control">
+                        <input type="url" id="scm-url" name="scm_url" placeholder="https://github.com/...">
+                    </span>
+                </div>
+            </div>
+
+            {# Execution Environment #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-ee">
+                    <span class="pf-v6-c-form__label-text">Execution Environment</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <select id="aap-ee" name="ee_id">
+                        <option value="">Loading...</option>
+                    </select>
+                </span>
+                {% if collection_fqcn %}
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);margin-top:0.25rem;display:block;">
+                    Ensure the selected EE includes <code>{{ collection_fqcn }}</code>
+                </small>
+                {% endif %}
+            </div>
+
+            {# Inventory #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-inventory">
+                    <span class="pf-v6-c-form__label-text">Inventory</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <select id="aap-inventory" name="inventory_id">
+                        <option value="">Loading...</option>
+                    </select>
+                </span>
+            </div>
+
+            {# Credential #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-credential">
+                    <span class="pf-v6-c-form__label-text">Credential (Machine)</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <select id="aap-credential" name="credential_id">
+                        <option value="">Loading...</option>
+                    </select>
+                </span>
+            </div>
+
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+                <button type="submit" class="pf-v6-c-button pf-m-primary" id="btn-aap-deploy">
+                    {% if deploy_target == "collection" %}Deploy Collection to AAP{% else %}Deploy to AAP{% endif %}
+                </button>
+                <span id="aap-deploy-spinner" class="htmx-indicator" aria-busy="true">Deploying...</span>
+            </div>
+        </form>
+
+        <div id="aap-deploy-result" style="margin-top:1rem;"></div>
+        {% endif %}
+
+    </div>
+</div>
+
+{% if aap_configured %}
+<script>
+(function() {
+    function loadOptions(selectId, apiUrl) {
+        var sel = document.getElementById(selectId);
+        if (!sel) return;
+        fetch(apiUrl)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                sel.innerHTML = '';
+                if (data.error) {
+                    sel.innerHTML = '<option value="">Error: ' + data.error + '</option>';
+                    return;
+                }
+                if (selectId === 'aap-project') {
+                    var opt = document.createElement('option');
+                    opt.value = '__new__';
+                    opt.textContent = '+ Create New Project';
+                    sel.appendChild(opt);
+                }
+                var items = data.items || [];
+                var defaultName = (data.default || '').toLowerCase();
+                for (var i = 0; i < items.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = items[i].id;
+                    opt.textContent = items[i].name;
+                    if (items[i].name.toLowerCase() === defaultName) {
+                        opt.selected = true;
+                    }
+                    sel.appendChild(opt);
+                }
+                if (selectId === 'aap-project') toggleNewProject();
+            })
+            .catch(function() {
+                sel.innerHTML = '<option value="">Failed to load</option>';
+            });
+    }
+
+    function toggleNewProject() {
+        var sel = document.getElementById('aap-project');
+        var fields = document.getElementById('new-project-fields');
+        if (!sel || !fields) return;
+        fields.style.display = sel.value === '__new__' ? '' : 'none';
+    }
+
+    var projSel = document.getElementById('aap-project');
+    if (projSel) projSel.addEventListener('change', toggleNewProject);
+
+    loadOptions('aap-project', '/api/aap/projects');
+    loadOptions('aap-ee', '/api/aap/execution-environments');
+    loadOptions('aap-inventory', '/api/aap/inventories');
+    loadOptions('aap-credential', '/api/aap/credentials');
+})();
+</script>
+{% endif %}

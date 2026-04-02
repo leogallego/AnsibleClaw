@@ -224,8 +224,63 @@ class TestSkillTemplate:
             params=[],
             examples="",
             example_args="name=mykey",
+            collection_fqcn="community.general",
         )
         assert '"module_name": "community.general.redis"' in result
+
+    def test_collection_requirement_for_non_builtin(self, render_template):
+        result = render_template(
+            module_name="community.general.redis",
+            skill_name="redis",
+            short_description="Redis commands",
+            params=[],
+            examples="",
+            example_args="name=mykey",
+            collection_fqcn="community.general",
+        )
+        assert "## Collection Requirement" in result
+        assert "community.general" in result
+        assert "ansible-galaxy collection install community.general" in result
+        assert "execution-environment.yml" in result
+        assert "ansible-builder" in result
+
+    def test_no_collection_requirement_for_builtin(self, render_template):
+        result = render_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Generic OS package manager",
+            params=[],
+            examples="",
+            example_args="name=nginx",
+            collection_fqcn="",
+        )
+        assert "## Collection Requirement" not in result
+
+    def test_ansible_posix_shows_collection_requirement(self, render_template):
+        result = render_template(
+            module_name="ansible.posix.acl",
+            skill_name="acl",
+            short_description="Set and retrieve file ACL information",
+            params=[],
+            examples="",
+            example_args="path=/etc/foo",
+            collection_fqcn="ansible.posix",
+        )
+        assert "## Collection Requirement" in result
+        assert "ansible.posix" in result
+
+    def test_galaxy_doc_warning_shown(self, render_template):
+        result = render_template(
+            module_name="community.general.redis",
+            skill_name="redis",
+            short_description="Redis commands",
+            params=[],
+            examples="",
+            example_args="name=mykey",
+            collection_fqcn="community.general",
+            doc_warning="Documentation sourced from Galaxy (community.general 9.2.0). Your installed version may differ.",
+        )
+        assert "Documentation sourced from Galaxy" in result
 
 
 class TestAAPRunTemplate:

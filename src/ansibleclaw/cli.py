@@ -21,6 +21,8 @@ from ansibleclaw.core.parser import (
     AnsibleDocError,
     extract_module_metadata,
     get_module_doc,
+    list_modules,
+    resolve_module_doc,
     search_modules,
 )
 
@@ -28,11 +30,15 @@ from ansibleclaw.core.parser import (
 def _module_to_skill_name(module_name: str) -> str:
     """Convert a module FQCN to a skill directory name.
 
+    Includes the collection name for non-builtin modules to avoid collisions.
     e.g. 'ansible.builtin.package' -> 'ansible_package'
-          'community.general.redis' -> 'ansible_redis'
+          'community.general.redis' -> 'ansible_general_redis'
+          'community.docker.docker_container' -> 'ansible_docker_docker_container'
     """
-    short = module_name.rsplit(".", 1)[-1]
-    return f"ansible_{short}"
+    parts = module_name.split(".")
+    if len(parts) >= 3 and f"{parts[0]}.{parts[1]}" != "ansible.builtin":
+        return f"ansible_{parts[1]}_{parts[-1]}"
+    return f"ansible_{parts[-1]}"
 
 
 def _get_template_env():
@@ -47,18 +53,34 @@ def _get_template_env():
     )
 
 
+def _collection_fqcn(module_name: str) -> str:
+    """Extract collection FQCN from a module name, or empty for builtins."""
+    parts = module_name.split(".")
+    if len(parts) >= 3 and f"{parts[0]}.{parts[1]}" != "ansible.builtin":
+        return f"{parts[0]}.{parts[1]}"
+    return ""
+
+
 def _template_context(metadata: dict) -> dict:
     """Build the shared template context from module metadata."""
+    module_name = metadata["module_name"]
     params = metadata["params"]
     example_args = _build_example_args(params, metadata.get("examples", ""))
-    return {
-        "module_name": metadata["module_name"],
-        "skill_name": _module_to_skill_name(metadata["module_name"]).replace("ansible_", ""),
+    ctx = {
+        "module_name": module_name,
+        "skill_name": _module_to_skill_name(module_name).replace("ansible_", ""),
         "short_description": metadata["short_description"],
         "params": params,
         "examples": metadata["examples"].strip() if metadata["examples"] else "",
         "example_args": example_args,
+        "collection_fqcn": _collection_fqcn(module_name),
     }
+    doc_source = metadata.get("doc_source", "local")
+    if doc_source != "local":
+        ctx["doc_source"] = doc_source
+        ctx["doc_version"] = metadata.get("doc_version", "")
+        ctx["doc_warning"] = metadata.get("doc_warning", "")
+    return ctx
 
 
 def _render_skill(metadata: dict) -> str:
@@ -97,6 +119,10 @@ def _write_skill_package(output_dir: Path, metadata: dict) -> None:
 
     playbook_template = env.get_template("playbook.yml.j2")
     (assets_dir / "playbook.yml").write_text(playbook_template.render(**ctx))
+
+    if ctx.get("collection_fqcn"):
+        req_template = env.get_template("requirements.yml.j2")
+        (assets_dir / "requirements.yml").write_text(req_template.render(**ctx))
 
 
 def _build_example_args(params: list[dict], examples_yaml: str = "") -> str:
@@ -166,22 +192,124 @@ def _resolve_output_dir(args: argparse.Namespace, skill_name: str) -> Path:
         return SKILLS_DIR / skill_name
 
 
-def cmd_generate(args: argparse.Namespace) -> None:
-    """Generate a full skill package for the specified Ansible module."""
-    module_name = args.module
+def _write_collection_skill_package(
+    output_dir: Path,
+    collection_fqcn: str,
+    modules_metadata: list[dict],
+) -> None:
+    """Write a collection-level overview skill (SKILL.md + requirements.yml)."""
+    env = _get_template_env()
+    template = env.get_template("collection_skill_template.md")
 
-    print(f"Fetching documentation for {module_name}...")
-    try:
-        doc = get_module_doc(module_name)
-    except AnsibleDocError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+    parts = collection_fqcn.split(".")
+    collection_name = parts[1] if len(parts) == 2 else collection_fqcn
+
+    ctx = {
+        "collection_fqcn": collection_fqcn,
+        "collection_name": collection_name,
+        "modules": modules_metadata,
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "SKILL.md").write_text(template.render(**ctx))
+
+    assets_dir = output_dir / "assets"
+    assets_dir.mkdir(exist_ok=True)
+    req_template = env.get_template("requirements.yml.j2")
+    (assets_dir / "requirements.yml").write_text(
+        req_template.render(
+            module_name=f"{collection_fqcn} (collection)",
+            collection_fqcn=collection_fqcn,
+        )
+    )
+
+
+def _generate_single(
+    module_name: str,
+    args: argparse.Namespace,
+) -> Path:
+    """Generate a single module skill and return its output dir."""
+    auto_install = getattr(args, "auto_install", False)
+    collection_version = getattr(args, "collection_version", None)
+
+    doc, doc_meta = resolve_module_doc(
+        module_name,
+        collection_version=collection_version,
+        auto_install=auto_install,
+    )
+
+    if doc_meta.get("doc_source") == "galaxy":
+        ver = doc_meta.get("doc_version", "")
+        print(f"  (sourced from Galaxy, collection version {ver})")
+        if doc_meta.get("doc_warning"):
+            print(f"  Warning: {doc_meta['doc_warning']}")
 
     metadata = extract_module_metadata(doc)
+    metadata.update(doc_meta)
     skill_name = _module_to_skill_name(metadata["module_name"])
     output_dir = _resolve_output_dir(args, skill_name)
 
     _write_skill_package(output_dir, metadata)
+    return output_dir
+
+
+def cmd_generate(args: argparse.Namespace) -> None:
+    """Generate skill package(s) for Ansible module(s) or a whole collection."""
+    collection = getattr(args, "collection", None)
+
+    if collection:
+        filter_modules = None
+        if getattr(args, "modules", None):
+            filter_modules = {
+                m.strip() for m in args.modules.split(",") if m.strip()
+            }
+
+        print(f"Listing modules in {collection}...")
+        try:
+            all_modules = list_modules(namespace=collection)
+        except AnsibleDocError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        if filter_modules:
+            target_modules = {}
+            for name, desc in all_modules.items():
+                short = name.rsplit(".", 1)[-1]
+                if name in filter_modules or short in filter_modules:
+                    target_modules[name] = desc
+            if not target_modules:
+                print(f"Error: none of the specified modules found in {collection}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            target_modules = all_modules
+
+        print(f"Generating skills for {len(target_modules)} module(s)...")
+        successes = 0
+        failures = 0
+        for module_name in sorted(target_modules.keys()):
+            print(f"  {module_name}...", end=" ")
+            try:
+                output_dir = _generate_single(module_name, args)
+                print(f"-> {output_dir.name}")
+                successes += 1
+            except Exception as exc:
+                print(f"FAILED: {exc}")
+                failures += 1
+
+        print(f"\nDone: {successes} generated, {failures} failed.")
+        return
+
+    module_name = args.module
+    if not module_name:
+        print("Error: module name is required (or use --collection)", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Fetching documentation for {module_name}...")
+    try:
+        output_dir = _generate_single(module_name, args)
+    except AnsibleDocError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
     print(f"Skill generated: {output_dir}/")
     print(f"  SKILL.md, scripts/run.sh, scripts/check.sh, scripts/aap_run.py, assets/playbook.yml")
 
@@ -258,10 +386,26 @@ def main() -> None:
         "generate",
         help="Generate a SKILL.md for an Ansible module.",
     )
-    gen_parser.add_argument("module", help="Fully-qualified module name (e.g., ansible.builtin.package)")
+    gen_parser.add_argument("module", nargs="?", default="", help="Fully-qualified module name (e.g., ansible.builtin.package)")
     gen_parser.add_argument("--install", metavar="PLATFORM", help="Install to agent platform (cursor, claude)")
     gen_parser.add_argument("--output", metavar="DIR", help="Custom output directory")
     gen_parser.add_argument("--zip", action="store_true", help="Also create a .zip archive for distribution")
+    gen_parser.add_argument(
+        "--auto-install", action="store_true",
+        help="Automatically install the collection via ansible-galaxy if not present locally",
+    )
+    gen_parser.add_argument(
+        "--collection-version", metavar="VER",
+        help="Pin the collection version for Galaxy fallback docs (e.g., 9.2.0)",
+    )
+    gen_parser.add_argument(
+        "--collection", metavar="FQCN",
+        help="Generate skills for all modules in a collection (e.g., ansible.posix)",
+    )
+    gen_parser.add_argument(
+        "--modules", metavar="LIST",
+        help="Comma-separated module short names to include (used with --collection)",
+    )
     gen_parser.set_defaults(func=cmd_generate)
 
     # --- search ---

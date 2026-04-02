@@ -5,8 +5,9 @@ set -euo pipefail
 
 MODULE="{{ module_name }}"
 {% set ns_parts = module_name.split('.') %}
-{% if ns_parts | length >= 3 and ns_parts[0] != 'ansible' %}
-COLLECTION="{{ ns_parts[0] }}.{{ ns_parts[1] }}"
+{% set collection_fqcn = ns_parts[0] ~ '.' ~ ns_parts[1] if ns_parts | length >= 3 else '' %}
+{% if collection_fqcn and collection_fqcn != 'ansible.builtin' %}
+COLLECTION="{{ collection_fqcn }}"
 {% else %}
 COLLECTION=""
 {% endif %}
@@ -43,10 +44,15 @@ echo "Results: $PASS passed, $FAIL failed"
 
 if [[ $FAIL -gt 0 ]]; then
     echo
-{% if ns_parts | length >= 3 and ns_parts[0] != 'ansible' %}
+{% if collection_fqcn and collection_fqcn != 'ansible.builtin' %}
     echo "To fix:"
     echo "  pip install ansible-core        # install Ansible"
-    echo "  ansible-galaxy collection install {{ ns_parts[0] }}.{{ ns_parts[1] }}  # install collection"
+    if [[ -n "${AAP_CONTROLLER_URL:-}" ]]; then
+        echo "  Collection {{ collection_fqcn }} may need to be added to your Execution Environment."
+        echo "  Update execution-environment.yml and rebuild with ansible-builder."
+    else
+        echo "  ansible-galaxy collection install {{ collection_fqcn }}  # install collection"
+    fi
 {% else %}
     echo "To fix:"
     echo "  pip install ansible-core        # install Ansible"

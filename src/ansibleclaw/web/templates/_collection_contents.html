@@ -1,0 +1,45 @@
+{% if modules %}
+<div style="margin-top:0.5rem;">
+    <p>
+        <strong>{{ collection }}</strong> &mdash;
+        {{ modules | length }} module(s)
+        {% if source == "galaxy" %}
+        <span class="pf-v6-c-label pf-m-outline pf-m-gold">
+            <span class="pf-v6-c-label__content">
+                <span class="pf-v6-c-label__text">Galaxy v{{ version }}</span>
+            </span>
+        </span>
+        {% else %}
+        <span class="pf-v6-c-label pf-m-outline pf-m-green">
+            <span class="pf-v6-c-label__content">
+                <span class="pf-v6-c-label__text">Local</span>
+            </span>
+        </span>
+        {% endif %}
+    </p>
+    <table class="pf-v6-c-table pf-m-grid-md pf-m-compact" role="grid" aria-label="Modules in {{ collection }}">
+        <thead>
+            <tr role="row">
+                <th role="columnheader" scope="col">Module</th>
+                <th role="columnheader" scope="col">Description</th>
+                <th role="columnheader" scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody role="rowgroup">
+            {% for name, desc in modules.items() | sort %}
+            <tr role="row">
+                <td role="cell" data-label="Module"><code>{{ name }}</code></td>
+                <td role="cell" data-label="Description">{{ desc or "" }}</td>
+                <td role="cell" data-label="Actions">
+                    <a href="/generate?module={{ name }}" class="pf-v6-c-button pf-m-link pf-m-small">
+                        Generate Skill
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p style="margin-top:0.5rem;"><span class="ac-warning">No modules found in {{ collection }}.</span></p>
+{% endif %}

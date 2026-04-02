@@ -1,5 +1,5 @@
 ---
-name: ansible-{{ skill_name }}
+name: ansible-{{ skill_name | replace('_', '-') }}
 description: >-
   {{ short_description }}
   Use when managing {{ skill_name | replace('_', ' ') }} resources on remote hosts via Ansible.
@@ -8,6 +8,37 @@ description: >-
 # {{ module_name }}
 
 {{ short_description }}
+{% if doc_warning is defined and doc_warning %}
+
+> **Note**: {{ doc_warning }}
+{% endif %}
+{% if collection_fqcn %}
+
+## Collection Requirement
+
+This module requires the `{{ collection_fqcn }}` collection.
+
+**CLI mode** (local execution):
+
+```bash
+ansible-galaxy collection install {{ collection_fqcn }}
+```
+
+**AAP mode** (Execution Environments):
+Collections are bundled into Execution Environments (EEs). If this module is unavailable
+in your EE, update your `execution-environment.yml` and rebuild:
+
+```yaml
+dependencies:
+  galaxy:
+    collections:
+      - name: {{ collection_fqcn }}
+```
+
+```bash
+ansible-builder build -t my-ee:latest
+```
+{% endif %}
 
 ## When to Use This Skill
 
