@@ -63,6 +63,8 @@ def _collection_fqcn(module_name: str) -> str:
 
 def _template_context(metadata: dict) -> dict:
     """Build the shared template context from module metadata."""
+    from ansibleclaw.config import AAPSettings
+
     module_name = metadata["module_name"]
     params = metadata["params"]
     example_args = _build_example_args(params, metadata.get("examples", ""))
@@ -80,6 +82,18 @@ def _template_context(metadata: dict) -> dict:
         ctx["doc_source"] = doc_source
         ctx["doc_version"] = metadata.get("doc_version", "")
         ctx["doc_warning"] = metadata.get("doc_warning", "")
+
+    aap_url = AAPSettings.get("url")
+    aap_token = AAPSettings.get("token")
+    ctx["aap_configured"] = bool(aap_url and aap_token)
+    ctx["aap_url"] = aap_url
+    ctx["aap_verify_ssl"] = AAPSettings.get("verify_ssl")
+    ctx["aap_inventory"] = AAPSettings.get("default_inventory")
+    ctx["aap_credential"] = AAPSettings.get("default_credential")
+    ctx["aap_project"] = AAPSettings.get("default_project")
+    ctx["aap_ee"] = AAPSettings.get("default_ee")
+    ctx["aap_organization"] = AAPSettings.get("default_organization")
+
     return ctx
 
 

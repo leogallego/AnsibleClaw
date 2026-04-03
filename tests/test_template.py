@@ -7,6 +7,30 @@ from jinja2 import Environment, FileSystemLoader
 
 from ansibleclaw.config import TEMPLATE_DIR, TEMPLATE_PATH
 
+# Default AAP context for CLI-mode tests (no AAP configured)
+_CLI_CTX = {
+    "aap_configured": False,
+    "aap_url": "",
+    "aap_verify_ssl": "true",
+    "aap_inventory": "",
+    "aap_credential": "",
+    "aap_project": "",
+    "aap_ee": "",
+    "aap_organization": "Default",
+}
+
+# AAP context for AAP-mode tests
+_AAP_CTX = {
+    "aap_configured": True,
+    "aap_url": "https://aap.example.com",
+    "aap_verify_ssl": "false",
+    "aap_inventory": "Demo Inventory",
+    "aap_credential": "Machine Cred",
+    "aap_project": "AnsibleClaw",
+    "aap_ee": "Default execution environment",
+    "aap_organization": "Default",
+}
+
 
 @pytest.fixture
 def render_template():
@@ -20,7 +44,19 @@ def render_template():
     template = env.get_template(TEMPLATE_PATH.name)
 
     def _render(**kwargs):
-        return template.render(**kwargs)
+        ctx = {**_CLI_CTX, **kwargs}
+        return template.render(**ctx)
+
+    return _render
+
+
+@pytest.fixture
+def render_aap_mode(render_template):
+    """Render the skill template with AAP configured."""
+
+    def _render(**kwargs):
+        ctx = {**_AAP_CTX, **kwargs}
+        return render_template(**ctx)
 
     return _render
 
@@ -117,7 +153,7 @@ class TestSkillTemplate:
         )
         assert "Examples from Ansible Documentation" not in result
 
-    def test_renders_inventory_section(self, render_template):
+    def test_cli_mode_has_inventory_section(self, render_template):
         result = render_template(
             module_name="ansible.builtin.package",
             skill_name="package",
@@ -126,10 +162,9 @@ class TestSkillTemplate:
             examples="",
             example_args="name=nginx",
         )
-        assert "## Inventory" in result
+        assert "Inventory" in result
         assert "-i /path/to/inventory.yml" in result
         assert "ANSIBLE_INVENTORY" in result
-        assert "/etc/ansible/hosts" in result
 
     def test_renders_safety_section(self, render_template):
         result = render_template(
@@ -141,10 +176,9 @@ class TestSkillTemplate:
             example_args="name=nginx",
         )
         assert "## Safety" in result
-        assert "--check --diff" in result
         assert "idempotent" in result
 
-    def test_renders_json_output_section(self, render_template):
+    def test_cli_mode_has_json_output(self, render_template):
         result = render_template(
             module_name="ansible.builtin.package",
             skill_name="package",
@@ -155,44 +189,7 @@ class TestSkillTemplate:
         )
         assert "ANSIBLE_STDOUT_CALLBACK=json" in result
 
-    def test_renders_aap_section(self, render_template):
-        result = render_template(
-            module_name="ansible.builtin.package",
-            skill_name="package",
-            short_description="Test",
-            params=[],
-            examples="",
-            example_args="name=nginx state=present",
-        )
-        assert "## Production Execution (AAP)" in result
-        assert "AAP_CONTROLLER_URL" in result
-        assert "AAP_CONTROLLER_TOKEN" in result
-        assert "aap_run.py" in result
-
-    def test_aap_section_contains_adhoc_example(self, render_template):
-        result = render_template(
-            module_name="ansible.builtin.package",
-            skill_name="package",
-            short_description="Test",
-            params=[],
-            examples="",
-            example_args="name=nginx state=present",
-        )
-        assert "aap_run.py adhoc" in result
-        assert "name=nginx state=present" in result
-
-    def test_aap_section_contains_job_template_launch(self, render_template):
-        result = render_template(
-            module_name="ansible.builtin.package",
-            skill_name="package",
-            short_description="Test",
-            params=[],
-            examples="",
-            example_args="name=nginx state=present",
-        )
-        assert "aap_run.py launch" in result
-
-    def test_aap_section_contains_status_check(self, render_template):
+    def test_cli_mode_section_heading(self, render_template):
         result = render_template(
             module_name="ansible.builtin.package",
             skill_name="package",
@@ -201,9 +198,9 @@ class TestSkillTemplate:
             examples="",
             example_args="name=nginx",
         )
-        assert "aap_run.py status" in result
+        assert "## How to Execute (CLI)" in result
 
-    def test_cli_section_renamed(self, render_template):
+    def test_cli_mode_shows_cli_mode_active(self, render_template):
         result = render_template(
             module_name="ansible.builtin.package",
             skill_name="package",
@@ -212,22 +209,10 @@ class TestSkillTemplate:
             examples="",
             example_args="name=nginx",
         )
-        assert "## Local Execution (CLI)" in result
+        assert "CLI mode is active" in result
+        assert "AAP mode is active" not in result
 
-    def test_aap_module_name_interpolated(self, render_template):
-        result = render_template(
-            module_name="community.general.redis",
-            skill_name="redis",
-            short_description="Redis commands",
-            params=[],
-            examples="",
-            example_args="name=mykey",
-            collection_fqcn="community.general",
-        )
-        assert "community.general" in result
-        assert "aap_run.py adhoc" in result
-
-    def test_collection_requirement_for_non_builtin(self, render_template):
+    def test_collection_requirement_cli_mode(self, render_template):
         result = render_template(
             module_name="community.general.redis",
             skill_name="redis",
@@ -238,10 +223,7 @@ class TestSkillTemplate:
             collection_fqcn="community.general",
         )
         assert "## Collection Requirement" in result
-        assert "community.general" in result
         assert "ansible-galaxy collection install community.general" in result
-        assert "execution-environment.yml" in result
-        assert "ansible-builder" in result
 
     def test_no_collection_requirement_for_builtin(self, render_template):
         result = render_template(
@@ -255,19 +237,6 @@ class TestSkillTemplate:
         )
         assert "## Collection Requirement" not in result
 
-    def test_ansible_posix_shows_collection_requirement(self, render_template):
-        result = render_template(
-            module_name="ansible.posix.acl",
-            skill_name="acl",
-            short_description="Set and retrieve file ACL information",
-            params=[],
-            examples="",
-            example_args="path=/etc/foo",
-            collection_fqcn="ansible.posix",
-        )
-        assert "## Collection Requirement" in result
-        assert "ansible.posix" in result
-
     def test_galaxy_doc_warning_shown(self, render_template):
         result = render_template(
             module_name="community.general.redis",
@@ -280,6 +249,160 @@ class TestSkillTemplate:
             doc_warning="Documentation sourced from Galaxy (community.general 9.2.0). Your installed version may differ.",
         )
         assert "Documentation sourced from Galaxy" in result
+
+
+class TestSkillTemplateAAPMode:
+    """Tests for the AAP-configured mode of the skill template."""
+
+    def test_aap_mode_active_message(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "AAP mode is active" in result
+        assert "CLI mode is active" not in result
+
+    def test_baked_aap_url_shown(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "https://aap.example.com" in result
+
+    def test_baked_inventory_shown(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "Demo Inventory" in result
+
+    def test_baked_credential_shown(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "Machine Cred" in result
+
+    def test_aap_section_heading(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "## How to Execute (AAP)" in result
+
+    def test_aap_adhoc_example(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "aap_run.py adhoc" in result
+        assert "name=nginx state=present" in result
+
+    def test_aap_launch_example(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "aap_run.py launch" in result
+
+    def test_aap_create_jt_example(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "aap_run.py create-jt" in result
+
+    def test_aap_status_example(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx",
+        )
+        assert "aap_run.py status" in result
+
+    def test_imperative_language(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "You MUST use" in result
+        assert "Do NOT" in result
+
+    def test_no_cli_section_in_aap_mode(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "## How to Execute (CLI)" not in result
+
+    def test_collection_requirement_aap_mode(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="community.general.redis",
+            skill_name="redis",
+            short_description="Redis commands",
+            params=[],
+            examples="",
+            example_args="name=mykey",
+            collection_fqcn="community.general",
+        )
+        assert "## Collection Requirement" in result
+        assert "Execution Environments" in result
+        assert "ansible-galaxy collection install" not in result
+
+    def test_token_not_baked(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx",
+        )
+        assert "AAP_CONTROLLER_TOKEN" in result
+        assert "MUST be set" in result
 
 
 class TestAAPRunTemplate:
@@ -296,7 +419,8 @@ class TestAAPRunTemplate:
         template = env.get_template("aap_run.py.j2")
 
         def _render(**kwargs):
-            return template.render(**kwargs)
+            ctx = {**_CLI_CTX, **kwargs}
+            return template.render(**ctx)
 
         return _render
 
@@ -326,6 +450,15 @@ class TestAAPRunTemplate:
         assert "def cmd_launch" in result
         assert "job_templates" in result
 
+    def test_contains_create_jt_subcommand(self, render_aap_template):
+        result = render_aap_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+        )
+        assert "def cmd_create_jt" in result
+        assert "create-jt" in result
+
     def test_contains_status_subcommand(self, render_aap_template):
         result = render_aap_template(
             module_name="ansible.builtin.package",
@@ -353,3 +486,24 @@ class TestAAPRunTemplate:
         assert "AAP_CONTROLLER_URL" in result
         assert "AAP_CONTROLLER_TOKEN" in result
         assert "AAP_VERIFY_SSL" in result
+
+    def test_baked_defaults_present(self, render_aap_template):
+        result = render_aap_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            **_AAP_CTX,
+        )
+        assert '_BAKED_URL = "https://aap.example.com"' in result
+        assert '_BAKED_INVENTORY = "Demo Inventory"' in result
+        assert '_BAKED_CREDENTIAL = "Machine Cred"' in result
+        assert '_BAKED_PROJECT = "AnsibleClaw"' in result
+
+    def test_no_token_baked(self, render_aap_template):
+        result = render_aap_template(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            **_AAP_CTX,
+        )
+        assert "_BAKED_TOKEN" not in result

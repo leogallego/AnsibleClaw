@@ -12,21 +12,67 @@ description: >-
 
 > **Note**: {{ doc_warning }}
 {% endif %}
+
+## Execution Mode -- READ THIS FIRST
+{% if aap_configured %}
+
+**AAP mode is active.** You MUST use `scripts/aap_run.py` (located next to this
+SKILL.md) for ALL execution. Do NOT run local `ansible` CLI commands.
+
+| Setting | Value |
+|---------|-------|
+| AAP Controller | `{{ aap_url }}` |
+| Default Inventory | `{{ aap_inventory }}` |
+| Default Credential | `{{ aap_credential }}` |
+| Default Project | `{{ aap_project }}` |
+{% if aap_ee %}| Default EE | `{{ aap_ee }}` |
+{% endif %}
+
+**IMPORTANT**: The environment variable `AAP_CONTROLLER_TOKEN` MUST be set
+before running any command. All other AAP settings are pre-configured.
+
+### Quick Start (FOLLOW THESE STEPS EXACTLY)
+
+1. **Check prerequisites**:
+   ```bash
+   bash scripts/check.sh
+   ```
+
+2. **Run ad-hoc command** (dry-run first, ALWAYS):
+   ```bash
+   python3 scripts/aap_run.py adhoc "{{ example_args }}" --check
+   ```
+
+3. **Apply the change** (after reviewing dry-run output):
+   ```bash
+   python3 scripts/aap_run.py adhoc "{{ example_args }}"
+   ```
+
+4. **Or launch an existing Job Template**:
+   ```bash
+   python3 scripts/aap_run.py launch "{{ skill_name | replace('_', '-') }}"
+   ```
+
+5. **If no Job Template exists yet, create one first**:
+   ```bash
+   python3 scripts/aap_run.py create-jt --name "{{ skill_name | replace('_', '-') }}"
+   ```
+   Then launch it with step 4.
+{% else %}
+
+**CLI mode is active.** Use local `ansible` commands to execute this module.
+To enable AAP mode, set `AAP_CONTROLLER_URL` and `AAP_CONTROLLER_TOKEN`.
+{% endif %}
 {% if collection_fqcn %}
 
 ## Collection Requirement
 
 This module requires the `{{ collection_fqcn }}` collection.
+{% if aap_configured %}
 
-**CLI mode** (local execution):
-
-```bash
-ansible-galaxy collection install {{ collection_fqcn }}
-```
-
-**AAP mode** (Execution Environments):
-Collections are bundled into Execution Environments (EEs). If this module is unavailable
-in your EE, update your `execution-environment.yml` and rebuild:
+In AAP mode, collections are bundled into Execution Environments (EEs).
+Ensure your EE includes `{{ collection_fqcn }}`. If not, update your
+`execution-environment.yml` and rebuild:
 
 ```yaml
 dependencies:
@@ -34,10 +80,14 @@ dependencies:
     collections:
       - name: {{ collection_fqcn }}
 ```
+{% else %}
+
+Install it locally:
 
 ```bash
-ansible-builder build -t my-ee:latest
+ansible-galaxy collection install {{ collection_fqcn }}
 ```
+{% endif %}
 {% endif %}
 
 ## When to Use This Skill
@@ -64,8 +114,57 @@ Do **not** use this for basic local file operations or CLI tasks that the agent 
 - **{{ p.name }}**: {{ p.choices | join(", ") }}
 {% endif %}{% endfor %}
 {% endif %}
+{% if aap_configured %}
+## How to Execute (AAP)
 
-## Local Execution (CLI)
+You MUST use `scripts/aap_run.py` for all commands below. The script
+auto-detects the correct API path for both AAP 2.4 (`/api/v2`) and
+AAP 2.5+ Gateway (`/api/controller/v2`).
+
+### Ad-Hoc Commands
+
+Run the module directly on AAP-managed hosts:
+
+```bash
+# ALWAYS dry-run first
+python3 scripts/aap_run.py adhoc "{{ example_args }}" --check
+
+# Apply the change after reviewing dry-run output
+python3 scripts/aap_run.py adhoc "{{ example_args }}"
+
+# Target specific hosts
+python3 scripts/aap_run.py adhoc "{{ example_args }}" --limit "web1.example.com"
+```
+
+### Job Templates
+
+Job Templates provide repeatable, RBAC-controlled execution in AAP.
+
+**Create a Job Template** (if one does not exist yet):
+
+```bash
+python3 scripts/aap_run.py create-jt --name "{{ skill_name | replace('_', '-') }}"
+```
+
+**Launch a Job Template**:
+
+```bash
+python3 scripts/aap_run.py launch "{{ skill_name | replace('_', '-') }}"
+
+# With extra variables
+python3 scripts/aap_run.py launch "{{ skill_name | replace('_', '-') }}" --extra-vars '{"target_hosts": "webservers"}'
+
+# Limit to specific hosts
+python3 scripts/aap_run.py launch "{{ skill_name | replace('_', '-') }}" --limit "web1.example.com"
+```
+
+**Check job status**:
+
+```bash
+python3 scripts/aap_run.py status <job-id>
+```
+{% else %}
+## How to Execute (CLI)
 
 Run this module using the `ansible` CLI (from `ansible-core`):
 
@@ -76,22 +175,14 @@ ansible <host-pattern> -m {{ module_name }} -a "<key=value arguments>" -b --chec
 ### Quick Examples
 
 ```bash
-# Dry-run first (always recommended for destructive operations)
+# ALWAYS dry-run first
 ansible webservers -m {{ module_name }} -a "{{ example_args }}" -b --check --diff
 
-# Apply the change
+# Apply the change after reviewing dry-run output
 ansible webservers -m {{ module_name }} -a "{{ example_args }}" -b --diff
 ```
 
-{% if examples %}
-### Examples from Ansible Documentation
-
-```yaml
-{{ examples }}
-```
-{% endif %}
-
-## Key Flags
+### Key Flags
 
 | Flag | Purpose |
 |------|---------|
@@ -101,23 +192,7 @@ ansible webservers -m {{ module_name }} -a "{{ example_args }}" -b --diff
 | `-i <path>` | Specify inventory file (see Inventory section below) |
 | `-l <pattern>` | Limit to specific hosts within a group |
 
-## JSON Output
-
-To get structured JSON output for programmatic parsing:
-
-```bash
-ANSIBLE_STDOUT_CALLBACK=json ansible <hosts> -m {{ module_name }} -a "<args>" -b
-```
-
-Or set `stdout_callback = json` in your `ansible.cfg` (AnsibleClaw projects include this by default).
-
-## Safety
-
-- **Always dry-run first**: Use `--check --diff` before applying destructive changes
-- **Become/sudo**: Most system-level modules require `-b`. Check the parameters above for guidance.
-- **Idempotency**: This module is idempotent -- running it multiple times with the same arguments produces the same result
-
-## Inventory
+### Inventory
 
 When running from inside the AnsibleClaw project, `ansible.cfg` sets the default inventory automatically. When using this skill from another location:
 
@@ -126,54 +201,25 @@ When running from inside the AnsibleClaw project, `ansible.cfg` sets the default
 - Use Ansible's default: `/etc/ansible/hosts`
 - Target a single host directly: `ansible <hostname>, -m {{ module_name }} -a "..."` (note the trailing comma)
 
-## Production Execution (AAP)
+### JSON Output
 
-When `AAP_CONTROLLER_URL` is set, use Ansible Automation Platform for governed, auditable execution.
-All jobs are tracked, RBAC-controlled, and run inside Execution Environments managed by AAP.
-
-### Environment Setup
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `AAP_CONTROLLER_URL` | yes | Base URL of the AAP/AWX controller (e.g. `https://aap.example.com`) |
-| `AAP_CONTROLLER_TOKEN` | yes | OAuth2 bearer token for authentication |
-| `AAP_VERIFY_SSL` | no | Set to `false` to skip TLS verification (default: `true`) |
-| `AAP_DEFAULT_INVENTORY` | no | Default inventory name or ID |
-| `AAP_DEFAULT_CREDENTIAL` | no | Default credential name or ID |
-
-### Ad-Hoc Command via AAP
-
-Use the generated helper script (`scripts/aap_run.py`). It auto-detects
-the correct API path for both classic AAP/AWX (`/api/v2`) and AAP 2.5+
-Gateway (`/api/controller/v2`), polls until completion, and prints JSON:
+To get structured JSON output for programmatic parsing:
 
 ```bash
-python3 scripts/aap_run.py adhoc "{{ example_args }}" --inventory "My Inventory" --credential "Machine Cred"
-
-# Dry-run
-python3 scripts/aap_run.py adhoc "{{ example_args }}" --inventory "My Inventory" --credential "Machine Cred" --check
+ANSIBLE_STDOUT_CALLBACK=json ansible <hosts> -m {{ module_name }} -a "<args>" -b
 ```
+{% endif %}
+{% if examples %}
 
-### Job Template Launch via AAP
+## Examples from Ansible Documentation
 
-If a job template exists for this module's playbook (create one from the
-AnsibleClaw web dashboard or the AAP UI):
-
-```bash
-python3 scripts/aap_run.py launch "{{ skill_name }}-deploy" --extra-vars '{"target_hosts": "webservers"}'
-
-python3 scripts/aap_run.py launch "{{ skill_name }}-deploy" --limit "web1.example.com"
+```yaml
+{{ examples }}
 ```
+{% endif %}
 
-### Checking Job Status
+## Safety
 
-The helper script polls automatically. To check a previously launched job:
-
-```bash
-python3 scripts/aap_run.py status <job-id>
-```
-
-### Choosing CLI vs AAP
-
-- **Development/testing**: Use the CLI section above -- direct `ansible` commands with local inventory
-- **Production**: Set `AAP_CONTROLLER_URL` and `AAP_CONTROLLER_TOKEN`, then use `scripts/aap_run.py` for governed, auditable execution
+- **ALWAYS dry-run first**: Use `--check` (AAP) or `--check --diff` (CLI) before applying changes
+- **Become/sudo**: Most system-level modules require elevated privileges. In AAP mode, this is configured in the credential.
+- **Idempotency**: This module is idempotent -- running it multiple times with the same arguments produces the same result

@@ -270,7 +270,7 @@ Teaches the AI to execute any Ansible module using the standard `ansible` CLI:
 - Safety: always `--check --diff` first for destructive operations
 - **Inventory portability section**: when working outside the AnsibleClaw project, use `-i /path/to/inventory`, set `ANSIBLE_INVENTORY` env var, or use `/etc/ansible/hosts`
 - Notes that `ansible.cfg` in the project sets JSON callback + default inventory automatically
-- **Production Execution (AAP)** section: ad-hoc commands via AAP API, job template launch, CLI-to-AAP mapping table
+- **Execution Mode** routing block: when AAP is configured, directs agents to use `aap_run.py` with baked settings; otherwise, CLI mode with `ansible` commands
 
 **`skills/ansible_search/SKILL.md`** -- The Scout
 
@@ -311,16 +311,16 @@ Templates rendered by `ansibleclaw generate`. Produces a dual-mode skill package
 - Frontmatter: `name`, `description` (from ansible-doc short_description)
 - Module purpose and when to use it
 - Parameters table (name, type, required, default, choices, description)
-- **Local Execution (CLI)** section with `ansible` CLI examples
-- **Production Execution (AAP)** section with ad-hoc, job template, and `aap_run.py` examples
-- **Inventory portability section**: documents `-i`, `ANSIBLE_INVENTORY`, and `ansible.cfg` options
+- **Execution Mode** routing block at top: AAP (with baked defaults) or CLI
+- **How to Execute (AAP)** section with `aap_run.py` adhoc, launch, create-jt, and status commands (when AAP configured)
+- **How to Execute (CLI)** section with `ansible` CLI examples, inventory options (when CLI mode)
 - Safety notes: `--check`, `--diff`, become requirements, idempotency
 
 **`aap_run.py.j2`** -- AAP Controller helper script template:
 - Python 3 stdlib only (`urllib.request` + `json`)
-- Subcommands: `adhoc` (ad-hoc module execution), `launch` (job template), `status` (check job)
+- Subcommands: `adhoc` (ad-hoc module execution), `launch` (job template), `create-jt` (create Job Template), `status` (check job)
+- Baked AAP defaults (`_BAKED_URL`, `_BAKED_INVENTORY`, etc.) from AnsibleClaw config; env vars override
 - Handles launch, poll, and output retrieval cycle
-- Reads AAP credentials from environment variables at runtime
 
 ### 8. OOTB Showcase: `ansible.builtin.package`
 
@@ -391,7 +391,7 @@ A local web dashboard launched via `ansibleclaw ui`. Built with FastAPI + Jinja2
 
 1. **Scaffolding** -- pyproject.toml, package structure, ansible.cfg, inventory, README
 2. **core/parser.py** -- ansible-doc scraping (foundation for everything)
-3. **skill_template.md** -- Jinja2 blueprint referencing `ansible` CLI, with inventory portability section
+3. **skill_template.md** -- Jinja2 blueprint with Execution Mode routing (AAP/CLI), baked AAP defaults when configured
 4. **cli.py** -- `ansibleclaw generate` (prints output path) and `ansibleclaw search`
 5. **ansible_manager SKILL.md** -- teaches `ansible` CLI ad-hoc execution + inventory portability
 6. **ansible_search SKILL.md** -- teaches `ansible-doc` with namespace-first filtering

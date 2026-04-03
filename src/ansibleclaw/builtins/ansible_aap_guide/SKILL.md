@@ -32,16 +32,12 @@ Use direct CLI mode (the default) when:
 
 Check for the `AAP_CONTROLLER_URL` environment variable:
 
-```bash
-if [[ -n "${AAP_CONTROLLER_URL:-}" ]]; then
-    echo "AAP mode -- use scripts/aap_run.py or the Controller API"
-else
-    echo "CLI mode -- use ansible commands directly"
-fi
-```
+When AAP is configured, generated skills ship with baked AAP defaults (URL, inventory, credential, project). Check the **"Execution Mode -- READ THIS FIRST"** section at the top of each skill's SKILL.md:
 
-If `AAP_CONTROLLER_URL` is set, always prefer the AAP execution path documented in each skill's
-"Production Execution (AAP)" section.
+- **AAP mode**: The skill will say "AAP mode is active" with pre-filled `aap_run.py` commands
+- **CLI mode**: The skill will say "CLI mode is active" with `ansible` CLI commands
+
+If AAP mode is active, you MUST use `scripts/aap_run.py` for all execution. The only required environment variable is `AAP_CONTROLLER_TOKEN` -- all other AAP settings are baked into the generated scripts.
 
 ## Environment Variables
 

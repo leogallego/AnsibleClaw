@@ -94,21 +94,20 @@ skills/ansible_redis/
 The SKILL.md includes:
 
 - **YAML frontmatter** with name and description for agent auto-discovery
+- **Execution Mode** routing block (AAP or CLI) -- READ THIS FIRST section at the top
 - **Parameters table** with type, required, default, choices, and description
-- **Local Execution (CLI)** section with `ansible` CLI examples
-- **Production Execution (AAP)** section with AAP Controller API examples and `aap_run.py` usage
-- **JSON output** instructions for structured results
+- **How to Execute (AAP)** section with `aap_run.py` commands (adhoc, launch, create-jt, status) when AAP is configured, with pre-filled defaults
+- **How to Execute (CLI)** section with `ansible` CLI examples, inventory options, and JSON output when in CLI mode
 - **Safety guidance** (dry-run, become, idempotency)
-- **Inventory portability** section for use outside the project
 
-### Dual-Mode Execution
+### Execution Mode Routing
 
-Generated skills are **dual-mode** -- they include both CLI and AAP execution paths:
+Generated skills have an **Execution Mode** section at the top that directs you to the correct path:
 
+- **AAP mode** (when configured): The SKILL.md contains pre-filled AAP settings (URL, inventory, credential, project) and imperative instructions to use `scripts/aap_run.py`. The `aap_run.py` script ships with baked defaults -- only `AAP_CONTROLLER_TOKEN` env var is required.
 - **CLI mode** (default): Direct `ansible` commands for development and testing
-- **AAP mode**: When `AAP_CONTROLLER_URL` and `AAP_CONTROLLER_TOKEN` are set, use `scripts/aap_run.py` or the Controller REST API for governed production execution
 
-The `scripts/aap_run.py` helper uses only Python stdlib (`urllib` + `json`) -- no extra pip install needed.
+The `scripts/aap_run.py` helper uses only Python stdlib (`urllib` + `json`) -- no extra pip install needed. Subcommands: `adhoc`, `launch`, `create-jt`, `status`.
 See the `ansible_aap_guide` skill for full AAP setup instructions.
 
 ## Batch Generation

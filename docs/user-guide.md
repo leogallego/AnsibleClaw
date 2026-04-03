@@ -424,16 +424,18 @@ ansible_apt/
 | `assets/playbook.yml` | Ansible playbook with example tasks | `ansible-core` |
 | `assets/requirements.yml` | Galaxy dependency for the collection | `ansible-galaxy` |
 
-The SKILL.md includes two execution sections:
+The SKILL.md is structured with an **Execution Mode** routing block at the top that directs agents to the correct path:
 
-- **Local Execution (CLI)** -- Direct `ansible` commands for development and testing
-- **Production Execution (AAP)** -- `aap_run.py` helper usage and raw API examples for governed production runs
+- **AAP mode** (when AAP is configured): imperative instructions using `scripts/aap_run.py` with pre-filled AAP settings (URL, inventory, credential, project) baked in at generation time
+- **CLI mode** (default): direct `ansible` commands for development and testing
+
+When AAP is configured in AnsibleClaw, generated skills embed the resolved AAP settings directly into the documentation and helper scripts, so agents can execute without additional configuration.
 
 ---
 
 ## Inventory Setup
 
-AnsibleClaw includes a starter inventory at `inventory/hosts.yml`:
+When using CLI mode, create an inventory file. Here is an example `inventory/hosts.yml`:
 
 ```yaml
 all:
@@ -669,7 +671,7 @@ The `ansible_aap_guide` built-in skill teaches AI agents this decision tree auto
 
 ### Using aap_run.py
 
-Every generated skill includes `scripts/aap_run.py` -- a Python 3 stdlib-only helper that wraps the AAP Controller REST API. It has three subcommands:
+Every generated skill includes `scripts/aap_run.py` -- a Python 3 stdlib-only helper that wraps the AAP Controller REST API. When AAP is configured, the script ships with baked defaults (URL, inventory, credential, project) so agents need only the `AAP_CONTROLLER_TOKEN` environment variable. It has four subcommands:
 
 **Ad-hoc command** (equivalent to `ansible <hosts> -m <module> -a "<args>"`):
 
@@ -683,6 +685,13 @@ python3 scripts/aap_run.py adhoc "name=nginx state=present" \
 ```bash
 python3 scripts/aap_run.py launch "deploy-webservers" \
   --extra-vars '{"version": "2.0"}' --limit "web1.example.com"
+```
+
+**Create a Job Template** (so agents can autonomously set up AAP resources):
+
+```bash
+python3 scripts/aap_run.py create-jt --name "package-deploy" \
+  --project "AnsibleClaw" --inventory "Production" --credential "Machine SSH Key"
 ```
 
 **Check job status:**

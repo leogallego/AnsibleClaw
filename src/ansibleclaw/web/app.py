@@ -121,6 +121,8 @@ def _render_skill_md(metadata: dict) -> str:
     skill_name = _module_to_skill_name(module_name).replace("ansible_", "")
     example_args = _build_example_args(metadata["params"], metadata.get("examples", ""))
 
+    from ansibleclaw.config import AAPSettings
+
     ctx = dict(
         module_name=module_name,
         skill_name=skill_name,
@@ -135,6 +137,18 @@ def _render_skill_md(metadata: dict) -> str:
         ctx["doc_source"] = doc_source
         ctx["doc_version"] = metadata.get("doc_version", "")
         ctx["doc_warning"] = metadata.get("doc_warning", "")
+
+    aap_url = AAPSettings.get("url")
+    aap_token = AAPSettings.get("token")
+    ctx["aap_configured"] = bool(aap_url and aap_token)
+    ctx["aap_url"] = aap_url
+    ctx["aap_verify_ssl"] = AAPSettings.get("verify_ssl")
+    ctx["aap_inventory"] = AAPSettings.get("default_inventory")
+    ctx["aap_credential"] = AAPSettings.get("default_credential")
+    ctx["aap_project"] = AAPSettings.get("default_project")
+    ctx["aap_ee"] = AAPSettings.get("default_ee")
+    ctx["aap_organization"] = AAPSettings.get("default_organization")
+
     return template.render(**ctx)
 
 

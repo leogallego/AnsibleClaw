@@ -143,7 +143,8 @@ class TestCmdGenerate:
         assert "name=ntpdate" in content
         assert "state=present" in content
         assert "## Parameters" in content
-        assert "## Inventory" in content
+        assert "## Execution Mode" in content
+        assert "## Safety" in content
 
     def test_generates_aap_run_script(self, tmp_path, sample_module_doc):
         """Generate pipeline produces scripts/aap_run.py."""
@@ -187,9 +188,9 @@ class TestCmdGenerate:
 
         skill_dir = tmp_path / "ansible_package"
         content = (skill_dir / "SKILL.md").read_text()
-        assert "## Production Execution (AAP)" in content
-        assert "## Local Execution (CLI)" in content
-        assert "AAP_CONTROLLER_URL" in content
+        assert "## Execution Mode" in content
+        assert ("## How to Execute (CLI)" in content or "## How to Execute (AAP)" in content)
+        assert "aap_run.py" in content
 
     def test_builtin_no_collection_requirement(self, tmp_path, sample_module_doc):
         """Builtin modules should not have a Collection Requirement section."""

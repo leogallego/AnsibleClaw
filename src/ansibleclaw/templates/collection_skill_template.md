@@ -80,13 +80,13 @@ ansible <hosts> -m {{ m.module_name }} -a "{% for p in m.params if p.required %}
 
 ## Execution Patterns
 
-### CLI -- Ad-Hoc
+### CLI Mode -- Ad-Hoc
 
 ```bash
 ansible <host-pattern> -m {{ collection_fqcn }}.<module> -a "<key=value>" -b --check --diff
 ```
 
-### CLI -- Playbook
+### CLI Mode -- Playbook
 
 ```yaml
 - hosts: all
@@ -98,24 +98,31 @@ ansible <host-pattern> -m {{ collection_fqcn }}.<module> -a "<key=value>" -b --c
         <param>: <value>
 ```
 
-### AAP -- Ad-Hoc Command
+### AAP Mode -- Ad-Hoc Command
+
+Use the `aap_run.py` helper from any generated per-module skill:
 
 ```bash
-curl -s -X POST "${AAP_CONTROLLER_URL}/api/v2/ad_hoc_commands/" \
-  -H "Authorization: Bearer ${AAP_CONTROLLER_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "inventory": 1,
-    "credential": 1,
-    "module_name": "{{ collection_fqcn }}.<module>",
-    "module_args": "<key=value>",
-    "become_enabled": true
-  }'
+python3 scripts/aap_run.py adhoc "<key=value>"
 ```
 
-### AAP -- Job Template
+When AAP defaults are baked in, inventory and credential are auto-resolved.
 
-For production workloads, create a Job Template in AAP that references a playbook using modules from this collection. The Execution Environment must include `{{ collection_fqcn }}`.
+### AAP Mode -- Job Template
+
+Create a Job Template for any module in this collection:
+
+```bash
+python3 scripts/aap_run.py create-jt --name "<module>-deploy"
+```
+
+Then launch it:
+
+```bash
+python3 scripts/aap_run.py launch "<module>-deploy"
+```
+
+The Execution Environment must include `{{ collection_fqcn }}`.
 
 ## Safety
 
