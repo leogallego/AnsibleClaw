@@ -263,7 +263,7 @@ AnsibleClaw/
 ├── tests/                     # Test suite
 ├── docs/                      # Documentation
 │   ├── user-guide.md          # Comprehensive user guide
-│   └── workflow.md            # Mermaid workflow diagrams (build + runtime)
+│   └── workflow.md            # Mermaid (business personas + technical)
 ├── pyproject.toml             # Package definition (ansible-claw on PyPI)
 └── README.md
 ```
@@ -272,7 +272,7 @@ AnsibleClaw/
 
 See [docs/user-guide.md](docs/user-guide.md) for the comprehensive user guide covering CLI usage, web dashboard walkthrough, end-to-end workflows, inventory setup, and troubleshooting.
 
-See [docs/workflow.md](docs/workflow.md) for Mermaid diagrams of the documentation-resolution chain, skill packaging, CLI and web entry points, runtime CLI vs AAP paths, and optional AAP deploy from the dashboard.
+See [docs/workflow.md](docs/workflow.md) for Mermaid workflows: a **business-owner view** with personas (Ansible admin, AAP admin, AI agent, knowledge workers), plus technical diagrams for documentation resolution, skill packaging, CLI and web entry points, runtime CLI vs AAP paths, and optional AAP deploy from the dashboard.
 
 ## License
 
