@@ -7,6 +7,7 @@ skill generation with preview, and ZIP download.
 from __future__ import annotations
 
 import shutil
+import time
 from pathlib import Path
 
 import yaml
@@ -22,6 +23,7 @@ from ansibleclaw.config import (
     SKILLS_DIR,
     TEMPLATE_DIR,
     TEMPLATE_PATH,
+    local_inventory_path,
 )
 from ansibleclaw.core.packager import package_skill_zip_bytes
 from ansibleclaw.core.parser import (
@@ -196,6 +198,7 @@ async def skill_detail(request: Request, name: str, deploy: str = ""):
         "deploy_name": name,
         "deploy_action": "/api/aap/deploy-skill",
         "collection_fqcn": collection_fqcn,
+        "jt_name_prefix": AAPSettings.get("job_template_prefix"),
     })
 
 
@@ -349,6 +352,53 @@ async def generate_skill(
     )
 
 
+_DEFAULT_LOCAL_INVENTORY = (
+    "# Local / CLI inventory (development). Production runs use AAP Controller inventories.\n"
+    "all:\n"
+    "  hosts: {}\n"
+)
+
+
+@app.get("/inventory", response_class=HTMLResponse)
+async def inventory_page(request: Request):
+    path = local_inventory_path()
+    if path.exists():
+        content = path.read_text()
+    else:
+        content = _DEFAULT_LOCAL_INVENTORY
+    return TEMPLATES.TemplateResponse(request, "inventory.html", {
+        "page": "inventory",
+        "inventory_path": str(path),
+        "inventory_content": content,
+        "save_ok": None,
+        "save_error": None,
+    })
+
+
+@app.post("/inventory", response_class=HTMLResponse)
+async def inventory_save(request: Request, content: str = Form("")):
+    path = local_inventory_path()
+    try:
+        yaml.safe_load(content)
+    except yaml.YAMLError as exc:
+        return TEMPLATES.TemplateResponse(request, "inventory.html", {
+            "page": "inventory",
+            "inventory_path": str(path),
+            "inventory_content": content,
+            "save_ok": None,
+            "save_error": f"Invalid YAML: {exc}",
+        })
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    return TEMPLATES.TemplateResponse(request, "inventory.html", {
+        "page": "inventory",
+        "inventory_path": str(path),
+        "inventory_content": content,
+        "save_ok": "Inventory saved.",
+        "save_error": None,
+    })
+
+
 # --- Collections ---
 
 @app.get("/collections", response_class=HTMLResponse)
@@ -394,6 +444,7 @@ async def collection_detail(request: Request, namespace: str, name: str):
         "page": "collections",
         "collection": coll_info,
         "modules": modules,
+        "jt_name_prefix": AAPSettings.get("job_template_prefix"),
     })
 
 
@@ -568,8 +619,51 @@ async def api_uninstall_collection(
 
 # --- AAP ---
 
+
+def _aap_html_step(msg: str) -> str:
+    return (
+        f'<div style="padding:0.2rem 0;color:var(--pf-t--global--text--color--subtle);">'
+        f"\u23f3 {msg}</div>\n"
+    )
+
+
+def _aap_html_ok(msg: str) -> str:
+    return f'<div class="ac-success" style="padding:0.2rem 0;">\u2713 {msg}</div>\n'
+
+
+def _aap_html_err(msg: str) -> str:
+    return f'<div class="ac-error" style="padding:0.2rem 0;">\u2717 {msg}</div>\n'
+
+
 def _aap_is_configured() -> bool:
     return bool(AAPSettings.get("url") and AAPSettings.get("token"))
+
+
+def _aap_ping_request(base_url: str, api_prefix: str) -> tuple[bool, str | None]:
+    """GET ``{base}{api_prefix}/ping/``. Returns ``(ok, error_detail)``."""
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    base = base_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {AAPSettings.get('token')}"}
+    ctx = None
+    if not AAPSettings.get_bool("verify_ssl"):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    url = f"{base}{api_prefix}/ping/"
+    try:
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, context=ctx, timeout=10):
+            return True, None
+    except urllib.error.HTTPError as exc:
+        return False, f"HTTP {exc.code}"
+    except urllib.error.URLError as exc:
+        reason = exc.reason
+        return False, str(reason) if reason else str(exc)
+    except OSError as exc:
+        return False, str(exc)
 
 
 def _aap_ping() -> bool:
@@ -580,35 +674,65 @@ def _aap_ping() -> bool:
     """
     if not _aap_is_configured():
         return False
-    import ssl
-    import urllib.error
-    import urllib.request
-
-    base = AAPSettings.get("url").rstrip("/")
-    headers = {"Authorization": f"Bearer {AAPSettings.get('token')}"}
-    ctx = None
-    if not AAPSettings.get_bool("verify_ssl"):
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-
+    base = AAPSettings.get("url")
     for prefix in ("/api/v2", "/api/controller/v2"):
-        try:
-            req = urllib.request.Request(
-                f"{base}{prefix}/ping/", headers=headers, method="GET",
-            )
-            with urllib.request.urlopen(req, context=ctx, timeout=10):
-                return True
-        except (urllib.error.URLError, urllib.error.HTTPError, OSError):
-            continue
+        ok, _ = _aap_ping_request(base, prefix)
+        if ok:
+            return True
     return False
+
+
+# Short-lived ping cache so nav shows consistent green/amber without re-pinging
+# on every page (each ping can take up to two HTTP attempts with timeouts).
+_AAP_PING_TTL_SEC = 45.0
+_aap_ping_singleton: tuple[str, float, bool] | None = None
+
+
+def _aap_ping_cache_key() -> str:
+    return f"{AAPSettings.get('url')}|{AAPSettings.get('token')}"
+
+
+def _aap_seed_ping_cache(ok: bool) -> None:
+    """Store ping result for nav indicator and TTL cache."""
+    global _aap_ping_singleton
+    if not _aap_is_configured():
+        _aap_ping_singleton = None
+        return
+    key = _aap_ping_cache_key()
+    _aap_ping_singleton = (key, time.monotonic() + _AAP_PING_TTL_SEC, ok)
+
+
+def _invalidate_aap_ping_cache() -> None:
+    global _aap_ping_singleton
+    _aap_ping_singleton = None
+
+
+def _aap_ping_cached(*, force: bool = False) -> bool:
+    """Return last-known AAP reachability; refresh with real ping when cache miss or force."""
+    if not _aap_is_configured():
+        return False
+    key = _aap_ping_cache_key()
+    now = time.monotonic()
+    global _aap_ping_singleton
+    if (
+        not force
+        and _aap_ping_singleton is not None
+        and _aap_ping_singleton[0] == key
+        and now < _aap_ping_singleton[1]
+    ):
+        return _aap_ping_singleton[2]
+    ok = _aap_ping()
+    _aap_ping_singleton = (key, now + _AAP_PING_TTL_SEC, ok)
+    return ok
 
 
 @app.middleware("http")
 async def inject_aap_status(request: Request, call_next):
     """Make AAP status available to all templates via request.state."""
     request.state.aap_configured = _aap_is_configured()
-    request.state.aap_connected = False
+    request.state.aap_connected = (
+        _aap_ping_cached() if request.state.aap_configured else False
+    )
     return await call_next(request)
 
 
@@ -627,8 +751,11 @@ def _patched_template_response(request_or_name, name_or_ctx=None, context=None, 
         request = ctx.get("request")
 
     aap_configured = getattr(request.state, "aap_configured", False) if request else False
+    aap_connected = (
+        getattr(request.state, "aap_connected", False) if request else False
+    )
     ctx.setdefault("aap_configured", aap_configured)
-    ctx.setdefault("aap_connected", False)
+    ctx.setdefault("aap_connected", aap_connected)
 
     return _orig_template_response(request, template_name, ctx, **kwargs)
 
@@ -639,7 +766,6 @@ TEMPLATES.TemplateResponse = _patched_template_response
 @app.get("/aap", response_class=HTMLResponse)
 async def aap_page(request: Request):
     configured = _aap_is_configured()
-    connected = _aap_ping() if configured else False
     settings = AAPSettings.get_all()
     sources = {k: AAPSettings.source_of(k) for k in settings}
     return TEMPLATES.TemplateResponse(request, "aap.html", {
@@ -647,7 +773,7 @@ async def aap_page(request: Request):
         "aap_settings": settings,
         "aap_sources": sources,
         "aap_configured": configured,
-        "aap_connected": connected,
+        # aap_connected comes from middleware + template patch (same cached ping)
     })
 
 
@@ -662,6 +788,8 @@ async def aap_save_settings(
     default_organization: str = Form(""),
     default_project: str = Form(""),
     default_ee: str = Form(""),
+    default_scm_url: str = Form(""),
+    job_template_prefix: str = Form(""),
 ):
     settings = {
         "url": url.strip(),
@@ -672,12 +800,14 @@ async def aap_save_settings(
         "default_organization": default_organization.strip() or "Default",
         "default_project": default_project.strip(),
         "default_ee": default_ee.strip(),
+        "default_scm_url": default_scm_url.strip(),
+        "job_template_prefix": job_template_prefix.strip(),
     }
     AAPSettings.save(settings)
     _invalidate_aap_client()
 
     configured = _aap_is_configured()
-    connected = _aap_ping() if configured else False
+    connected = _aap_ping_cached(force=True) if configured else False
 
     if configured and connected:
         msg = '<span class="ac-success">\u2713 Settings saved. Connection successful.</span>'
@@ -696,11 +826,37 @@ async def aap_save_settings(
     )
 
 
-@app.get("/aap/ping", response_class=HTMLResponse)
-async def aap_ping():
-    if _aap_ping():
-        return HTMLResponse('<span class="ac-success">\u2713 Connection successful</span>')
-    return HTMLResponse('<span class="ac-error">\u2717 Connection failed</span>')
+@app.get("/aap/ping-stream")
+async def aap_ping_stream():
+    """Stream HTML fragments for each connectivity check (for live UI updates)."""
+    from starlette.responses import StreamingResponse
+
+    def chunks():
+        if not _aap_is_configured():
+            yield _aap_html_err("Set Controller URL and token first.")
+            return
+        base = AAPSettings.get("url").rstrip("/")
+        yield _aap_html_step(f"Target controller: <code>{base}</code>")
+        yield _aap_html_step("Probing <code>/api/v2/ping/</code> (classic API)\u2026")
+        ok, err = _aap_ping_request(base, "/api/v2")
+        if ok:
+            yield _aap_html_ok("Controller responded on <code>/api/v2</code>.")
+            _aap_seed_ping_cache(True)
+            yield _aap_html_ok("<strong>Connection successful.</strong>")
+            return
+        yield _aap_html_err(err or "Unreachable")
+        yield _aap_html_step("Probing <code>/api/controller/v2/ping/</code> (AAP 2.5 gateway)\u2026")
+        ok2, err2 = _aap_ping_request(base, "/api/controller/v2")
+        if ok2:
+            yield _aap_html_ok("Controller responded on gateway API.")
+            _aap_seed_ping_cache(True)
+            yield _aap_html_ok("<strong>Connection successful.</strong>")
+            return
+        yield _aap_html_err(err2 or "Unreachable")
+        _aap_seed_ping_cache(False)
+        yield _aap_html_err("<strong>Connection failed</strong> on both API paths.")
+
+    return StreamingResponse(chunks(), media_type="text/html; charset=utf-8")
 
 
 # --- AAP resource listing & deployment ---
@@ -804,6 +960,7 @@ def _get_aap_client():
 
 def _invalidate_aap_client():
     _aap_client_cache.clear()
+    _invalidate_aap_ping_cache()
 
 
 @app.get("/api/aap/organizations")
@@ -1005,15 +1162,30 @@ async def api_aap_project_playbooks(project_id: int):
 
 
 def _step(msg: str) -> str:
-    return f'<div style="padding:0.2rem 0;color:var(--pf-t--global--text--color--subtle);">\u23f3 {msg}</div>\n'
+    return _aap_html_step(msg)
 
 
 def _ok(msg: str) -> str:
-    return f'<div class="ac-success" style="padding:0.2rem 0;">\u2713 {msg}</div>\n'
+    return _aap_html_ok(msg)
 
 
 def _err(msg: str) -> str:
-    return f'<div class="ac-error" style="padding:0.2rem 0;">\u2717 {msg}</div>\n'
+    return _aap_html_err(msg)
+
+
+def _prefixed_job_template_name(base: str) -> str:
+    """Apply ``job_template_prefix`` so AAP admins can spot AnsibleClaw-created JTs."""
+    base = (base or "").strip()
+    if not base:
+        return base
+    prefix = (AAPSettings.get("job_template_prefix") or "").strip()
+    if not prefix:
+        return base
+    if base.lower().startswith(prefix.lower()):
+        return base
+    if prefix.endswith((" ", "\t", "-", "_", ":")):
+        return f"{prefix}{base}"
+    return f"{prefix} {base}"
 
 
 @app.post("/api/aap/deploy-skill")
@@ -1042,7 +1214,8 @@ async def api_aap_deploy_skill(
             yield _err("Select a Project.")
             return
 
-        jt_name = job_template_name or skill_name
+        raw_jt = (job_template_name or skill_name).strip()
+        jt_name = _prefixed_job_template_name(raw_jt)
         actual_project_id = int(project_id)
         effective_playbook = playbook_path.strip() or f"skills/{skill_name}/assets/playbook.yml"
 
@@ -1075,7 +1248,7 @@ async def api_aap_deploy_skill(
                     return
                 yield _ok(f"Playbook verified: <code>{effective_playbook}</code>")
 
-            yield _step("Creating Job Template\u2026")
+            yield _step(f"Creating Job Template <code>{jt_name}</code>\u2026")
             result = client.create_job_template(
                 name=jt_name,
                 project_id=actual_project_id,
@@ -1184,7 +1357,7 @@ async def api_aap_deploy_collection(
         successes = 0
         failures = []
         for skill_dir_name in all_skill_names:
-            jt_name = skill_dir_name.replace("_", "-")
+            jt_name = _prefixed_job_template_name(skill_dir_name.replace("_", "-"))
             if base_playbook_dir:
                 effective_pb = f"{base_playbook_dir}/skills/{skill_dir_name}/assets/playbook.yml"
             else:

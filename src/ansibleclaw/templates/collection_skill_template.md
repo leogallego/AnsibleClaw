@@ -98,23 +98,17 @@ ansible <host-pattern> -m {{ collection_fqcn }}.<module> -a "<key=value>" -b --c
         <param>: <value>
 ```
 
-### AAP Mode -- Ad-Hoc Command
+### AAP Mode -- Job Template (preferred)
 
-Use the `aap_run.py` helper from any generated per-module skill:
+For each generated per-module skill, use that skill’s `scripts/aap_run.py` for AAP runs; **do not** use `scripts/run.sh` there — it wraps the local `ansible` CLI only.
 
-```bash
-python3 scripts/aap_run.py adhoc "<key=value>"
-```
-
-When AAP defaults are baked in, inventory and credential are auto-resolved.
-
-### AAP Mode -- Job Template
-
-Create a Job Template for any module in this collection:
+Create a Job Template for any module in this collection (after `assets/playbook.yml` exists in the AAP Project repo and is synced):
 
 ```bash
 python3 scripts/aap_run.py create-jt --name "<module>-deploy"
 ```
+
+Job Templates are bound to a **Controller inventory** when created; launches resolve hosts and groups from that AAP inventory.
 
 Then launch it:
 
@@ -123,6 +117,16 @@ python3 scripts/aap_run.py launch "<module>-deploy"
 ```
 
 The Execution Environment must include `{{ collection_fqcn }}`.
+
+### AAP Mode -- Optional ad-hoc command
+
+For one-off module runs without a playbook (not the default production path), use `aap_run.py` from the generated per-module skill:
+
+```bash
+python3 scripts/aap_run.py adhoc "<key=value>"
+```
+
+**Targets come from AAP-managed inventories**. When defaults are baked in, inventory and credential are auto-resolved. Use `--inventory` for a **different Controller inventory** (name or ID), not a local file path.
 
 ## Safety
 

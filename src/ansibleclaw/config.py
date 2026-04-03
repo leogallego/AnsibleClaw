@@ -50,6 +50,9 @@ _AAP_KEYS: dict[str, tuple[str, str]] = {
     "default_organization":("AAP_DEFAULT_ORGANIZATION", "Default"),
     "default_project":     ("AAP_DEFAULT_PROJECT", ""),
     "default_ee":          ("AAP_DEFAULT_EE", ""),
+    "default_scm_url":    ("AAP_DEFAULT_SCM_URL", ""),
+    # Prepended to Job Template names created by Deploy to AAP (empty = no prefix).
+    "job_template_prefix": ("ANSIBLECLAW_JOB_TEMPLATE_PREFIX", "AnsibleClaw: "),
 }
 
 
@@ -83,12 +86,16 @@ class AAPSettings:
     def get(cls, key: str) -> str:
         """Resolve a single AAP setting: env var > file > default."""
         env_name, default = _AAP_KEYS[key]
+        if key == "job_template_prefix" and env_name in os.environ:
+            return os.environ[env_name]
         env_val = os.environ.get(env_name)
         if env_val is not None and env_val != "":
             return env_val
         file_val = cls._load_file().get(key)
-        if file_val is not None and file_val != "":
-            return file_val
+        if key == "job_template_prefix" and file_val is not None:
+            return str(file_val)
+        if file_val is not None and str(file_val) != "":
+            return str(file_val)
         return default
 
     @classmethod
@@ -104,11 +111,15 @@ class AAPSettings:
     def source_of(cls, key: str) -> str:
         """Return where the active value comes from: 'env', 'file', or 'default'."""
         env_name, _ = _AAP_KEYS[key]
+        if key == "job_template_prefix" and env_name in os.environ:
+            return "env"
         env_val = os.environ.get(env_name)
         if env_val is not None and env_val != "":
             return "env"
         file_val = cls._load_file().get(key)
-        if file_val is not None and file_val != "":
+        if key == "job_template_prefix" and file_val is not None:
+            return "file"
+        if file_val is not None and str(file_val) != "":
             return "file"
         return "default"
 
@@ -123,7 +134,17 @@ class AAPSettings:
             except Exception:
                 pass
 
-        clean = {k: v for k, v in settings.items() if k in _AAP_KEYS and v}
+        clean: dict[str, str] = {}
+        for k, v in settings.items():
+            if k not in _AAP_KEYS:
+                continue
+            if isinstance(v, str):
+                v = v.strip()
+            if k == "job_template_prefix":
+                clean[k] = v
+                continue
+            if v:
+                clean[k] = v
         existing["aap"] = clean
         path.write_text(yaml.dump(existing, default_flow_style=False, sort_keys=False))
         cls._file_cache = clean
@@ -132,6 +153,19 @@ class AAPSettings:
     @classmethod
     def invalidate_cache(cls) -> None:
         cls._file_cache = None
+
+
+def local_inventory_path() -> Path:
+    """Path to the on-disk inventory file for local / CLI workflows.
+
+    Set ``ANSIBLECLAW_INVENTORY_FILE`` to override. Otherwise uses
+    ``inventory/hosts.yml`` under the current working directory (AnsibleClaw
+    project convention).
+    """
+    raw = os.environ.get("ANSIBLECLAW_INVENTORY_FILE", "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path.cwd() / "inventory" / "hosts.yml"
 
 
 def _ensure_gitignore() -> None:
@@ -182,6 +216,8 @@ class _ConfigModule:
     AAP_DEFAULT_ORGANIZATION = _AAPProxy("default_organization")
     AAP_DEFAULT_PROJECT = _AAPProxy("default_project")
     AAP_DEFAULT_EE = _AAPProxy("default_ee")
+    AAP_DEFAULT_SCM_URL = _AAPProxy("default_scm_url")
+    ANSIBLECLAW_JOB_TEMPLATE_PREFIX = _AAPProxy("job_template_prefix")
 
 
 _cfg = _ConfigModule()
@@ -198,3 +234,7 @@ AAP_DEFAULT_CREDENTIAL: str = os.environ.get("AAP_DEFAULT_CREDENTIAL", "")
 AAP_DEFAULT_ORGANIZATION: str = os.environ.get("AAP_DEFAULT_ORGANIZATION", "Default")
 AAP_DEFAULT_PROJECT: str = os.environ.get("AAP_DEFAULT_PROJECT", "")
 AAP_DEFAULT_EE: str = os.environ.get("AAP_DEFAULT_EE", "")
+AAP_DEFAULT_SCM_URL: str = os.environ.get("AAP_DEFAULT_SCM_URL", "")
+ANSIBLECLAW_JOB_TEMPLATE_PREFIX: str = os.environ.get(
+    "ANSIBLECLAW_JOB_TEMPLATE_PREFIX", "AnsibleClaw: "
+)

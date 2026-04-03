@@ -322,6 +322,37 @@ class TestSkillTemplateAAPMode:
         assert "aap_run.py adhoc" in result
         assert "name=nginx state=present" in result
 
+    def test_aap_quick_start_prefers_jt_over_adhoc(self, render_aap_mode):
+        """Quick Start should list create-jt/launch before optional ad-hoc."""
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        qs = result.find("### Quick Start")
+        end = result.find("## When to Use", qs)
+        assert qs != -1 and end != -1
+        chunk = result[qs:end]
+        assert "#### Optional: ad-hoc" in chunk
+        assert chunk.find("aap_run.py create-jt") < chunk.find("aap_run.py adhoc")
+
+    def test_how_to_execute_jt_before_adhoc(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        sec = result.find("## How to Execute (AAP)")
+        jt = result.find("### Job Templates", sec)
+        ad = result.find("### Optional: ad-hoc", sec)
+        assert jt != -1 and ad != -1 and jt < ad
+
     def test_aap_launch_example(self, render_aap_mode):
         result = render_aap_mode(
             module_name="ansible.builtin.package",

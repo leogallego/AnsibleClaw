@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Local Inventory{% endblock %}
+
+{% block content %}
+<div class="ac-page-header">
+    <h1>Local Inventory</h1>
+    <p>
+        Edit the on-disk inventory used for <strong>local / CLI</strong> runs (<code>ansible</code>, <code>ansible-playbook</code>).
+        Production execution through Ansible Automation Platform uses <strong>Controller-managed inventories</strong> instead
+        &mdash; configure those on the <a href="/aap">AAP</a> page.
+    </p>
+</div>
+
+<div class="pf-v6-c-card">
+    <div class="pf-v6-c-card__title">
+        <h2 class="pf-v6-c-card__title-text">{{ inventory_path }}</h2>
+    </div>
+    <div class="pf-v6-c-card__body">
+        {% if save_ok %}
+        <p class="ac-success">{{ save_ok }}</p>
+        {% endif %}
+        {% if save_error %}
+        <p class="ac-error">{{ save_error }}</p>
+        {% endif %}
+        <p><small>Override the file path with environment variable <code>ANSIBLECLAW_INVENTORY_FILE</code>.</small></p>
+        <form method="post" action="/inventory" class="pf-v6-c-form">
+            <div class="pf-v6-c-form__group">
+                <label class="pf-v6-c-form__label" for="inventory-content">
+                    <span class="pf-v6-c-form__label-text">YAML content</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <textarea id="inventory-content" name="content" class="ac-code-textarea" rows="22" spellcheck="false">{{ inventory_content }}</textarea>
+                </span>
+            </div>
+            <div class="pf-v6-c-form__group pf-v6-c-form__group--action">
+                <button type="submit" class="pf-v6-c-button pf-m-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

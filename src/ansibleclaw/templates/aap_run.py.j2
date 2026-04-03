@@ -27,6 +27,19 @@ import urllib.request
 
 MODULE = "{{ module_name }}"
 
+
+def _adhoc_module_name(module: str) -> str:
+    """Map FQCN to the form AAP's ad-hoc API accepts for ``module_name``.
+
+    Controllers typically expect a short name for built-in modules (``package``),
+    not ``ansible.builtin.package``. Collection modules keep the usual dotted
+    FQCN (e.g. ``community.general.redis``).
+    """
+    if module.startswith("ansible.builtin.") or module.startswith("ansible.legacy."):
+        return module.rsplit(".", 1)[-1]
+    return module
+
+
 # ---------------------------------------------------------------------------
 # Baked defaults from AnsibleClaw config (override with env vars).
 # The token is NEVER baked -- it must always come from the environment.
@@ -229,17 +242,22 @@ def cmd_adhoc(args: argparse.Namespace) -> None:
     payload = {
         "inventory": inv_id,
         "credential": cred_id,
-        "module_name": MODULE,
+        "module_name": _adhoc_module_name(MODULE),
         "module_args": args.module_args,
         "limit": args.limit or "",
         "become_enabled": not args.no_become,
+        # Check (dry-run) mode is ``job_type: check`` — do not rely on
+        # ``ansible_check_mode`` in extra_vars; some controllers reject that.
+        "job_type": "check" if args.check else "run",
     }
 
-    if args.check:
+    if args.diff:
         payload["diff_mode"] = True
-        payload["extra_vars"] = json.dumps({"ansible_check_mode": True})
 
-    print(f"==> Launching ad-hoc: {MODULE} on inventory {inv_id}", file=sys.stderr)
+    print(
+        f"==> Launching ad-hoc: {_adhoc_module_name(MODULE)} ({MODULE}) on inventory {inv_id}",
+        file=sys.stderr,
+    )
     result = _post(_api(base_url, token, verify, "/ad_hoc_commands/"), token, verify, payload)
 
     job_url = result.get("url", f"{_detect_api_prefix(base_url, token, verify)}/ad_hoc_commands/{result['id']}/")
@@ -400,6 +418,11 @@ def main() -> None:
     adhoc.add_argument("--limit", help="Limit to specific host pattern")
     adhoc.add_argument("--no-become", action="store_true", help="Disable become/sudo")
     adhoc.add_argument("--check", action="store_true", help="Run in check/dry-run mode")
+    adhoc.add_argument(
+        "--diff",
+        action="store_true",
+        help="Request diff output in job results (optional; omit if controller rejects it)",
+    )
     adhoc.set_defaults(func=cmd_adhoc)
 
     # -- launch --

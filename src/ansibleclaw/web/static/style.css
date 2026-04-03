@@ -213,6 +213,19 @@
    Code Block Overrides
    ============================================ */
 
+.ac-code-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--pf-t--global--font--family--mono);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    padding: 0.75rem;
+    background: var(--pf-t--global--background--color--secondary--default);
+    border: 1px solid var(--pf-t--global--border--color--default);
+    border-radius: var(--pf-t--global--border--radius--small);
+    color: var(--pf-t--global--text--color--regular);
+}
+
 pre.ac-code {
     max-height: 60vh;
     overflow-y: auto;
@@ -277,6 +290,11 @@ pre.ac-code {
 .ac-page-header p {
     color: var(--pf-t--global--text--color--subtle);
     margin-top: 0;
+}
+
+/* AAP: streamed deploy / connection output (same layout as Deploy to AAP) */
+.ac-aap-stream-result {
+    margin-top: 1rem;
 }
 
 /* ============================================

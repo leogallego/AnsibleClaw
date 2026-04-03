@@ -7,40 +7,40 @@
     <p>Configure and test your AAP Controller connection</p>
 </div>
 
-{# --- Connection Status Card --- #}
-<div class="pf-v6-c-card" style="margin-bottom:1rem;" id="aap-status-card">
-    <div class="pf-v6-c-card__title">
-        <h3 class="pf-v6-c-card__title-text">Connection Status</h3>
+{# --- Controller connection: status + streamed test --- #}
+<div class="pf-v6-c-card" style="margin-bottom:1rem;" id="aap-connection-card">
+    <div class="pf-v6-c-card__header">
+        <h3 class="pf-v6-c-card__header-main" style="margin:0;">Controller connection</h3>
     </div>
-    <div class="pf-v6-c-card__body" style="display:flex;align-items:center;gap:0.75rem;">
-        {% if aap_connected %}
-        <span class="pf-v6-c-label pf-m-green">
-            <span class="pf-v6-c-label__content">
-                <span class="pf-v6-c-label__text">Connected</span>
-            </span>
-        </span>
-        <span>AAP Controller is reachable and authenticated.</span>
-        {% elif aap_configured %}
-        <span class="pf-v6-c-label pf-m-gold">
-            <span class="pf-v6-c-label__content">
-                <span class="pf-v6-c-label__text">Configured</span>
-            </span>
-        </span>
-        <span>URL and token are set but connectivity has not been verified.</span>
-        <button class="pf-v6-c-button pf-m-link pf-m-small"
-                hx-get="/aap/ping" hx-target="#ping-result" hx-indicator="#ping-spinner">
-            Test now
-        </button>
-        <span id="ping-spinner" class="htmx-indicator">Testing...</span>
-        <span id="ping-result"></span>
-        {% else %}
-        <span class="pf-v6-c-label pf-m-red">
-            <span class="pf-v6-c-label__content">
-                <span class="pf-v6-c-label__text">Not Configured</span>
-            </span>
-        </span>
-        <span>Enter your AAP Controller details below to get started.</span>
+    <div class="pf-v6-c-card__body">
+        <div style="margin-bottom:1rem;padding:0.75rem 1rem;border-radius:var(--pf-t--global--border--radius--small);background:var(--pf-t--global--background--color--secondary--default);border-left:4px solid var(--pf-t--global--color--brand--default);">
+            <p style="margin:0 0 0.25rem;font-weight:600;">
+                {% if aap_connected %}
+                &#9989; AAP Controller connected
+                {% elif aap_configured %}
+                Connection check
+                {% else %}
+                Not configured
+                {% endif %}
+            </p>
+            <p style="margin:0;font-size:0.875rem;color:var(--pf-t--global--text--color--subtle);">
+                {% if aap_connected %}
+                Reachability is based on your last test or cached check. Use <strong>Test connection</strong> below to run a live probe (same step-by-step output as Deploy to AAP).
+                {% elif aap_configured %}
+                URL and token are saved. Click <strong>Test connection</strong> to stream each probe step below.
+                {% else %}
+                Enter Controller URL and token under <strong>Controller Settings</strong> to enable testing.
+                {% endif %}
+            </p>
+        </div>
+        {% if aap_configured %}
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+            <button type="button" id="btn-aap-test-connection" class="pf-v6-c-button pf-m-secondary">
+                Test connection
+            </button>
+        </div>
         {% endif %}
+        <div id="aap-ping-result" class="ac-aap-stream-result"></div>
     </div>
 </div>
 
@@ -146,13 +146,19 @@
                     <span class="pf-v6-c-form__label-text">Git Repo URL</span>
                 </label>
                 <span class="pf-v6-c-form-control">
-                    <input type="text" id="aap-git-repo-url" readonly
-                           value="" placeholder="Select a project above"
+                    <input type="text" id="aap-git-repo-url" name="default_scm_url" readonly
+                           value="{{ aap_settings.default_scm_url }}"
+                           placeholder="Select a project above"
                            style="background:var(--pf-t--global--background--color--secondary--default);cursor:default;">
                 </span>
                 <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);display:block;margin-top:0.25rem;">
-                    SCM URL from the selected AAP project. Playbooks are pushed here during deploy.
+                    SCM URL from the selected AAP project (saved with <strong>Save &amp; Test Connection</strong>). Playbooks are pushed here during deploy.
                 </small>
+                {% if aap_sources.default_scm_url == "env" %}
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);display:block;">
+                    Active value may come from <code>AAP_DEFAULT_SCM_URL</code> env var.
+                </small>
+                {% endif %}
             </div>
 
             {# Default Organization #}
@@ -211,6 +217,26 @@
                 </span>
             </div>
 
+            {# Job Template name prefix (Deploy to AAP) #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-jt-prefix">
+                    <span class="pf-v6-c-form__label-text">Job Template name prefix</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <input type="text" id="aap-jt-prefix" name="job_template_prefix"
+                           value="{{ aap_settings.job_template_prefix }}"
+                           placeholder="AnsibleClaw: ">
+                </span>
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);display:block;margin-top:0.25rem;">
+                    Prepended to every Job Template name created by <strong>Deploy to AAP</strong> so admins can tell automation from manual JTs. Leave empty for no prefix.
+                </small>
+                {% if aap_sources.job_template_prefix == "env" %}
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);display:block;">
+                    Overridden by <code>ANSIBLECLAW_JOB_TEMPLATE_PREFIX</code> env var.
+                </small>
+                {% endif %}
+            </div>
+
             {# Save button #}
             <div style="display:flex;gap:0.75rem;align-items:center;margin-top:1rem;">
                 <button type="submit" class="pf-v6-c-button pf-m-primary">
@@ -224,29 +250,51 @@
 
         <p style="margin-top:1rem;font-size:0.8125rem;color:var(--pf-t--global--text--color--subtle);">
             Settings are saved to <code>.ansibleclaw.yml</code> in the project root.
-            Environment variables (<code>AAP_CONTROLLER_URL</code>, <code>AAP_CONTROLLER_TOKEN</code>, etc.)
-            take precedence when set.
+            Environment variables (<code>AAP_CONTROLLER_URL</code>, <code>AAP_CONTROLLER_TOKEN</code>,
+            <code>ANSIBLECLAW_JOB_TEMPLATE_PREFIX</code>, etc.) take precedence when set.
         </p>
     </div>
 </div>
 
-{# --- Quick Test Card (shown when connected) --- #}
-{% if aap_connected %}
-<div class="pf-v6-c-card">
-    <div class="pf-v6-c-card__title">
-        <h3 class="pf-v6-c-card__title-text">Quick Test</h3>
-    </div>
-    <div class="pf-v6-c-card__body">
-        <button class="pf-v6-c-button pf-m-secondary" hx-get="/aap/ping" hx-target="#ping-result-bottom" hx-indicator="#ping-spinner-bottom">
-            Test Connection
-        </button>
-        <span id="ping-spinner-bottom" class="htmx-indicator">Testing...</span>
-        <div id="ping-result-bottom" style="margin-top:0.5rem;"></div>
-    </div>
-</div>
-{% endif %}
-
 <script>
+/* ------------------------------------------------------------------ */
+/* Streamed AAP connectivity test (fetch + incremental HTML)         */
+/* ------------------------------------------------------------------ */
+function runAapPingStream() {
+    var resultDiv = document.getElementById('aap-ping-result');
+    var btn = document.getElementById('btn-aap-test-connection');
+    if (!resultDiv || !btn) return;
+    resultDiv.innerHTML = '';
+    btn.disabled = true;
+
+    fetch('/aap/ping-stream')
+        .then(function(response) {
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            function pump() {
+                return reader.read().then(function(r) {
+                    if (r.done) {
+                        btn.disabled = false;
+                        return;
+                    }
+                    resultDiv.innerHTML += decoder.decode(r.value, { stream: true });
+                    resultDiv.scrollTop = resultDiv.scrollHeight;
+                    return pump();
+                });
+            }
+            return pump();
+        })
+        .catch(function() {
+            resultDiv.innerHTML = '<span class="ac-error">Failed to reach server</span>';
+            btn.disabled = false;
+        });
+}
+
+(function() {
+    var tbtn = document.getElementById('btn-aap-test-connection');
+    if (tbtn) tbtn.addEventListener('click', runAapPingStream);
+})();
+
 /* ------------------------------------------------------------------ */
 /* Shared helpers                                                     */
 /* ------------------------------------------------------------------ */
@@ -336,6 +384,16 @@ function refreshFromAAP() {
             }
             populateSelect('aap-default-project', data.items || [], '');
             clearDependentFields();
+            /* Repopulate org/inventory/credential/EE when the same project stays
+               selected: programmatic <select> updates do not fire "change". */
+            var projSel = document.getElementById('aap-default-project');
+            if (projSel && projSel.value) {
+                var opt = projSel.options[projSel.selectedIndex];
+                if (opt && opt.getAttribute('data-id')) {
+                    onProjectSelected();
+                    return;
+                }
+            }
             var count = (data.items || []).length;
             status.innerHTML = '<span class="ac-success">\u2713 ' + count + ' project' + (count !== 1 ? 's' : '') + ' loaded. Select one to populate the remaining fields.</span>';
         })

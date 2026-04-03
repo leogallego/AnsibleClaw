@@ -74,7 +74,7 @@ ansibleclaw generate "community.general.redis" --output /path/to/skills/
 
 3. **Read**: The CLI prints the output path -- read the generated SKILL.md for parameter guidance
 
-4. **Use**: Execute the module using the `ansible` CLI as documented in the new skill
+4. **Use**: Open the generated SKILL.md and follow **Execution Mode -- READ THIS FIRST** at the top: use `scripts/aap_run.py` when **AAP mode** is active (do **not** use `scripts/run.sh` for AAP — it is CLI-only); otherwise use local `ansible` / `ansible-playbook` as described in the **How to Execute (CLI)** section.
 
 ## What Gets Generated
 
@@ -82,9 +82,9 @@ Each generated skill package contains:
 
 ```
 skills/ansible_redis/
-  SKILL.md              # Dual-mode: CLI + AAP sections
+  SKILL.md              # Dual-mode: CLI (local + file inventory) or AAP (Controller + Controller inventory)
   scripts/
-    run.sh              # Local CLI wrapper
+    run.sh              # Local CLI wrapper (not for AAP mode)
     check.sh            # Prerequisite checks (CLI + AAP)
     aap_run.py          # AAP Controller API helper (Python stdlib only)
   assets/
@@ -96,7 +96,7 @@ The SKILL.md includes:
 - **YAML frontmatter** with name and description for agent auto-discovery
 - **Execution Mode** routing block (AAP or CLI) -- READ THIS FIRST section at the top
 - **Parameters table** with type, required, default, choices, and description
-- **How to Execute (AAP)** section with `aap_run.py` commands (adhoc, launch, create-jt, status) when AAP is configured, with pre-filled defaults
+- **How to Execute (AAP)** section with `aap_run.py` commands when AAP is configured: **Job Template first** (create-jt, launch, status), **ad-hoc demoted** as optional, with pre-filled defaults
 - **How to Execute (CLI)** section with `ansible` CLI examples, inventory options, and JSON output when in CLI mode
 - **Safety guidance** (dry-run, become, idempotency)
 
@@ -104,8 +104,8 @@ The SKILL.md includes:
 
 Generated skills have an **Execution Mode** section at the top that directs you to the correct path:
 
-- **AAP mode** (when configured): The SKILL.md contains pre-filled AAP settings (URL, inventory, credential, project) and imperative instructions to use `scripts/aap_run.py`. The `aap_run.py` script ships with baked defaults -- only `AAP_CONTROLLER_TOKEN` env var is required.
-- **CLI mode** (default): Direct `ansible` commands for development and testing
+- **AAP mode** (production, when configured): Execution goes through `scripts/aap_run.py` against Ansible Automation Platform. **Do not use `scripts/run.sh`** in this mode — it invokes local `ansible` only. **Inventory is managed in AAP** (inventories, groups, and sources in the Controller UI or API)—not from static files under the repo’s `inventory/` directory. The SKILL.md lists pre-filled Controller settings (URL, default AAP inventory name or ID, credential, project). The `aap_run.py` script ships with baked defaults -- only `AAP_CONTROLLER_TOKEN` env var is required.
+- **CLI mode** (default, local/dev): Direct `ansible` commands with **file-based inventory** (`ansible.cfg`, `-i`, or `ANSIBLE_INVENTORY`) or ad hoc host lists. **AAP production → Controller inventory; CLI / local dev → file inventory** (project path or explicit path).
 
 The `scripts/aap_run.py` helper uses only Python stdlib (`urllib` + `json`) -- no extra pip install needed. Subcommands: `adhoc`, `launch`, `create-jt`, `status`.
 See the `ansible_aap_guide` skill for full AAP setup instructions.

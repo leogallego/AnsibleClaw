@@ -55,3 +55,32 @@ def test_root_redirects_to_skills(web_client):
     resp = web_client.get("/", follow_redirects=False)
     assert resp.status_code == 307
     assert "/skills" in resp.headers["location"]
+
+
+def test_inventory_page(web_client, tmp_path, monkeypatch):
+    inv = tmp_path / "hosts.yml"
+    monkeypatch.setenv("ANSIBLECLAW_INVENTORY_FILE", str(inv))
+    resp = web_client.get("/inventory")
+    assert resp.status_code == 200
+    assert "Local Inventory" in resp.text
+    assert str(inv) in resp.text
+
+
+def test_inventory_save_valid(web_client, tmp_path, monkeypatch):
+    inv = tmp_path / "hosts.yml"
+    monkeypatch.setenv("ANSIBLECLAW_INVENTORY_FILE", str(inv))
+    yaml_content = "all:\n  hosts:\n    h1:\n"
+    resp = web_client.post("/inventory", data={"content": yaml_content})
+    assert resp.status_code == 200
+    assert "Inventory saved" in resp.text
+    assert inv.read_text() == yaml_content
+
+
+def test_inventory_save_invalid(web_client, tmp_path, monkeypatch):
+    inv = tmp_path / "hosts.yml"
+    monkeypatch.setenv("ANSIBLECLAW_INVENTORY_FILE", str(inv))
+    bad = "all: ["
+    resp = web_client.post("/inventory", data={"content": bad})
+    assert resp.status_code == 200
+    assert "Invalid YAML" in resp.text
+    assert not inv.exists()

@@ -24,7 +24,8 @@
                 {% if aap_configured %}
                 Deploying this {% if deploy_target == "collection" %}collection{% else %}skill{% endif %} will create
                 {% if deploy_target == "collection" %}one Job Template per module skill{% else %}a Job Template{% endif %}
-                in your AAP Controller. Playbooks are automatically pushed to the
+                in your AAP Controller{% if jt_name_prefix is defined and jt_name_prefix %}, each named with prefix <code>{{ jt_name_prefix }}</code>{% endif %}.
+                Playbooks are automatically pushed to the
                 selected Project's git repo and synced before the Job Template is created.
                 {% else %}
                 Ansible Automation Platform (AAP) is the recommended way to run generated skills in production.
@@ -56,6 +57,11 @@
                     <input type="text" id="jt-name" name="job_template_name"
                            value="{{ deploy_name | replace('_', '-') }}" required>
                 </span>
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);margin-top:0.25rem;display:block;">
+                    Created in AAP as
+                    <code>{% if jt_name_prefix is defined and jt_name_prefix %}{{ jt_name_prefix }}{% endif %}{{ deploy_name | replace('_', '-') }}</code>
+                    (change prefix on the <a href="/aap">AAP settings</a> page).
+                </small>
             </div>
             {% endif %}
 
@@ -139,7 +145,7 @@
             </div>
         </form>
 
-        <div id="aap-deploy-result" style="margin-top:1rem;"></div>
+        <div id="aap-deploy-result" class="ac-aap-stream-result"></div>
         {% endif %}
 
     </div>

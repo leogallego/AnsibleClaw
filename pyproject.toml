@@ -39,7 +39,7 @@ ansibleclaw = "ansibleclaw.cli:main"
 
 [project.optional-dependencies]
 ui = ["fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9"]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "httpx>=0.27"]
 
 [tool.hatch.version]
 path = "src/ansibleclaw/__init__.py"
