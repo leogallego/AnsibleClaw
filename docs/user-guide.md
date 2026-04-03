@@ -8,6 +8,7 @@ This guide covers everything you need to install, configure, and use AnsibleClaw
 
 - [Installation](#installation)
 - [Concepts](#concepts)
+- [AI agents and Agent Skills (before vs after)](#ai-agents-and-agent-skills-before-vs-after)
 - [CLI Reference](#cli-reference)
   - [ansibleclaw generate](#ansibleclaw-generate)
   - [ansibleclaw search](#ansibleclaw-search)
@@ -131,6 +132,40 @@ When generating a skill, AnsibleClaw resolves module documentation through a fal
 3. **Galaxy API** -- Falls back to the Ansible Galaxy REST API to fetch documentation remotely
 
 This means you can generate skills for collections you haven't installed locally -- the Galaxy fallback fetches the docs for you.
+
+---
+
+## AI agents and Agent Skills (before vs after)
+
+AnsibleClaw exists so AI assistants do not have to **reinvent** Ansible workflows on every question. Host products (for example **Claude Desktop**, **Claude.ai** with uploaded skills, **Cursor**) expose [Agent Skills](https://agentskill.sh/readme) as files the model is instructed to read. Whether a skill is present changes what the user sees and what the agent can safely assume about your project.
+
+### Example: installing a package on remote hosts
+
+Suppose you ask: *"I want to install the `abc` package on my remote hosts."*
+
+**Before any AnsibleClaw skill is installed**, a typical assistant has only general training data. It often responds with a **guided questionnaire**: short prose ("Tell me more…") plus UI steps such as picking an OS family (Ubuntu/Debian, RHEL, macOS, mixed) before it suggests commands. The advice is **not anchored** to your repo: you still map answers to inventory, playbooks, and execution style (CLI vs Ansible Automation Platform) yourself.
+
+![Before Skills: multi-step UI questionnaire instead of repo-specific automation](before-skills.png)
+
+**After you add a generated module skill** (for example the skill produced from `ansible.builtin.package`) and the agent loads it, behavior shifts:
+
+- The UI may show that the model is **reading a named skill** (for example "Reading the ansible-package skill").
+- The reply is **structured and local**: run `bash scripts/check.sh`, edit `assets/playbook.yml` with an `ansible.builtin.package` task, set `AAP_CONTROLLER_TOKEN` when using AAP, run `python3 scripts/aap_run.py create-jt …` when creating job templates, and so on.
+- Instructions stay **consistent** with the dual-mode layout every generated package uses (`SKILL.md`, `scripts/`, `assets/`).
+
+![After Skills: skill-backed steps referencing scripts and playbooks in the skill package](after-skills.png)
+
+### Summary comparison
+
+| Dimension | Before Skills | After Skills (AnsibleClaw packages) |
+|-----------|----------------|-------------------------------------|
+| **Grounding** | Generic best practices | Module docs + your skill's file layout |
+| **First turn** | Clarifying questions / wizards | Often direct steps from `SKILL.md` |
+| **Paths** | Invented or placeholder | `scripts/check.sh`, `assets/playbook.yml`, `scripts/aap_run.py` |
+| **AAP** | Optional, easy to skip | Documented in skill; helper script included |
+| **Team reuse** | Everyone re-prompts | Install or ZIP the same skill directory |
+
+Built-in skills shipped with `ansible-claw` (`ansible_search`, `ansible_manager`, `ansible_skills_factory`, `ansible_aap_guide`) extend this idea: they teach the agent how to **discover modules**, **run ad-hoc Ansible**, **generate new skills**, and **choose AAP vs CLI** without you writing those instructions from scratch.
 
 ---
 

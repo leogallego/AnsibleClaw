@@ -55,6 +55,27 @@ ansibleclaw ui
 
 Generated skills are portable: copy them into `~/.cursor/skills/`, `~/.claude/skills/`, or any agent's skill directory. ZIP packages can be uploaded directly to Claude.ai or shared via agentskill.sh. They work anywhere `ansible-core` is installed.
 
+## AI agents: before Skills vs after Skills
+
+Products such as **Claude Desktop** and **Cursor** can load [Agent Skills](https://agentskill.sh/readme) so the model follows project-specific instructions and file layouts. The same user request behaves very differently depending on whether a relevant skill is installed.
+
+**Before Skills** -- The assistant often falls back to a **generic interview**: it asks follow-up questions through UI cards or chat (for example, which OS your hosts run) before it proposes commands. Answers are not tied to your repository, and you still have to translate advice into your own playbooks and automation layout.
+
+![Before Skills: guided questionnaire instead of repo-specific Ansible steps](docs/before-skills.png)
+
+**After Skills** -- The assistant **loads the matching skill** (you may see an indicator such as "Reading the ansible-package skill" in the product UI). It then gives **concrete, repo-shaped guidance**: which scripts to run (`scripts/check.sh`), how to edit `assets/playbook.yml`, and how to drive Ansible Automation Platform with `scripts/aap_run.py`, aligned with the dual-mode flow in each generated package.
+
+![After Skills: skill-backed steps using local scripts and playbooks](docs/after-skills.png)
+
+| Aspect | Before Skills | After Skills |
+|--------|----------------|--------------|
+| Discovery | Broad questions (OS, tooling, environment) | Reads `SKILL.md` and optional built-ins (`ansible_search`, `ansible_manager`, …) |
+| Output | General Ansible snippets or prose | Paths and commands that match the generated skill layout |
+| AAP / production | Often omitted or hand-wavy | Uses embedded AAP instructions and `aap_run.py` when configured |
+| Repeatability | You copy-paste and adapt each time | Same package can be shared (ZIP, repo, team `skills/` dir) |
+
+See [docs/user-guide.md](docs/user-guide.md) for setup, CLI, dashboard, and workflows.
+
 ## Generated Skill Package
 
 Each generated skill is a complete [Agent Skills](https://agentskill.sh/readme) package with dual-mode execution (CLI + AAP):
@@ -67,7 +88,8 @@ ansible_apt/
 │   ├── check.sh          # Prerequisite validator (CLI + AAP connectivity)
 │   └── aap_run.py        # AAP Controller API helper (Python stdlib only)
 └── assets/
-    └── playbook.yml      # Ready-to-use Ansible playbook
+    ├── playbook.yml      # Ready-to-use Ansible playbook
+    └── requirements.yml  # Galaxy collection pin (non-`ansible.builtin` modules only)
 ```
 
 | File | Purpose | Dependency |
@@ -77,6 +99,7 @@ ansible_apt/
 | `scripts/check.sh` | Validates CLI and AAP prerequisites | `ansible-core`, `curl` |
 | `scripts/aap_run.py` | Launches ad-hoc commands and job templates via AAP Controller API | Python 3 (stdlib) |
 | `assets/playbook.yml` | Ansible playbook with example tasks for the module | `ansible-core` |
+| `assets/requirements.yml` | Declares the collection for Galaxy install (omitted for builtins) | `ansible-galaxy` |
 
 ## CLI Reference
 
@@ -205,6 +228,10 @@ Compatible with both AWX (free upstream) and Red Hat AAP Controller (commercial)
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `ANSIBLECLAW_SKILLS_DIR` | `./skills/` (CWD) | Where generated skills are written |
+| `ANSIBLECLAW_GALAXY_URL` | `https://galaxy.ansible.com` | Galaxy API base URL for remote doc fallback |
+| `ANSIBLECLAW_COLLECTIONS_PATH` | *(empty)* | Optional collections path (sets `ANSIBLE_COLLECTIONS_PATH` when set) |
+
+AAP-related defaults can also be stored in `.ansibleclaw.yml` (under `aap:`); environment variables override file values. See the [user guide](docs/user-guide.md#configuration) for the full list.
 
 ## Project Structure
 
