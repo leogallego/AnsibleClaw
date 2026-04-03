@@ -16,14 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ansibleclaw.config import (
-    AAP_CONTROLLER_TOKEN,
-    AAP_CONTROLLER_URL,
-    AAP_DEFAULT_CREDENTIAL,
-    AAP_DEFAULT_EE,
-    AAP_DEFAULT_INVENTORY,
-    AAP_DEFAULT_ORGANIZATION,
-    AAP_DEFAULT_PROJECT,
-    AAP_VERIFY_SSL,
+    AAPSettings,
     BUILTINS_DIR,
     INSTALL_PATHS,
     SKILLS_DIR,
@@ -309,7 +302,7 @@ async def generate_skill(
         metadata = extract_module_metadata(doc)
         metadata.update(doc_meta)
     except AnsibleDocError as exc:
-        return HTMLResponse(f'<p class="ac-error">{exc}</p>', status_code=400)
+        return HTMLResponse(f'<p class="ac-error">{exc}</p>')
 
     from ansibleclaw.cli import _module_to_skill_name, _write_skill_package
     skill_name = _module_to_skill_name(metadata["module_name"])
@@ -321,7 +314,7 @@ async def generate_skill(
     elif target == "custom" and custom_path:
         output_dir = Path(custom_path) / skill_name
     else:
-        return HTMLResponse("Invalid target", status_code=400)
+        return HTMLResponse('<p class="ac-error">Invalid target</p>')
 
     _write_skill_package(output_dir, metadata)
 
@@ -479,14 +472,13 @@ async def api_generate_collection_overview(
     if len(parts) != 2:
         return HTMLResponse(
             '<span class="ac-error">Invalid collection FQCN.</span>',
-            status_code=400,
         )
 
     try:
         modules = list_modules(namespace=collection)
     except AnsibleDocError as exc:
         return HTMLResponse(
-            f'<span class="ac-error">{exc}</span>', status_code=400,
+            f'<span class="ac-error">{exc}</span>',
         )
 
     modules_metadata: list[dict] = []
@@ -510,7 +502,7 @@ async def api_generate_collection_overview(
         _write_collection_skill_package(output_dir, collection, modules_metadata)
     except Exception as exc:
         return HTMLResponse(
-            f'<span class="ac-error">Failed: {exc}</span>', status_code=500,
+            f'<span class="ac-error">Failed: {exc}</span>',
         )
 
     return HTMLResponse(
@@ -530,7 +522,6 @@ async def api_install_collection(
     except AnsibleDocError as exc:
         return HTMLResponse(
             f'<span class="ac-error">Install failed: {exc}</span>',
-            status_code=400,
         )
     ver_str = f" {version}" if version else ""
     return HTMLResponse(
@@ -551,7 +542,6 @@ async def api_uninstall_collection(
     except AnsibleDocError as exc:
         return HTMLResponse(
             f'<span class="ac-error">Uninstall failed: {exc}</span>',
-            status_code=400,
         )
     return HTMLResponse(
         content=(
@@ -564,43 +554,40 @@ async def api_uninstall_collection(
 
 # --- AAP ---
 
-def _aap_env_info() -> dict:
-    """Gather AAP environment variable state."""
-    return {
-        "url": AAP_CONTROLLER_URL,
-        "token": AAP_CONTROLLER_TOKEN,
-        "verify_ssl": AAP_VERIFY_SSL,
-        "default_inventory": AAP_DEFAULT_INVENTORY,
-        "default_credential": AAP_DEFAULT_CREDENTIAL,
-        "default_organization": AAP_DEFAULT_ORGANIZATION,
-    }
-
-
 def _aap_is_configured() -> bool:
-    return bool(AAP_CONTROLLER_URL and AAP_CONTROLLER_TOKEN)
+    return bool(AAPSettings.get("url") and AAPSettings.get("token"))
 
 
 def _aap_ping() -> bool:
-    """Try to reach the AAP Controller /api/v2/ping/ endpoint."""
+    """Try to reach the AAP Controller ping endpoint.
+
+    Probes both ``/api/v2/ping/`` (classic) and
+    ``/api/controller/v2/ping/`` (AAP 2.5 gateway).
+    """
     if not _aap_is_configured():
         return False
     import ssl
     import urllib.error
     import urllib.request
 
-    url = f"{AAP_CONTROLLER_URL.rstrip('/')}/api/v2/ping/"
-    headers = {"Authorization": f"Bearer {AAP_CONTROLLER_TOKEN}"}
-    req = urllib.request.Request(url, headers=headers, method="GET")
+    base = AAPSettings.get("url").rstrip("/")
+    headers = {"Authorization": f"Bearer {AAPSettings.get('token')}"}
     ctx = None
-    if not AAP_VERIFY_SSL:
+    if not AAPSettings.get_bool("verify_ssl"):
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    try:
-        with urllib.request.urlopen(req, context=ctx, timeout=10):
-            return True
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
-        return False
+
+    for prefix in ("/api/v2", "/api/controller/v2"):
+        try:
+            req = urllib.request.Request(
+                f"{base}{prefix}/ping/", headers=headers, method="GET",
+            )
+            with urllib.request.urlopen(req, context=ctx, timeout=10):
+                return True
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+            continue
+    return False
 
 
 @app.middleware("http")
@@ -611,7 +598,6 @@ async def inject_aap_status(request: Request, call_next):
     return await call_next(request)
 
 
-# Override template context to include AAP status in all pages
 _orig_template_response = TEMPLATES.TemplateResponse
 
 
@@ -638,34 +624,183 @@ TEMPLATES.TemplateResponse = _patched_template_response
 
 @app.get("/aap", response_class=HTMLResponse)
 async def aap_page(request: Request):
-    connected = _aap_ping() if _aap_is_configured() else False
+    configured = _aap_is_configured()
+    connected = _aap_ping() if configured else False
+    settings = AAPSettings.get_all()
+    sources = {k: AAPSettings.source_of(k) for k in settings}
     return TEMPLATES.TemplateResponse(request, "aap.html", {
         "page": "aap",
-        "aap_env": _aap_env_info(),
-        "aap_configured": _aap_is_configured(),
+        "aap_settings": settings,
+        "aap_sources": sources,
+        "aap_configured": configured,
         "aap_connected": connected,
     })
+
+
+@app.post("/aap/settings", response_class=HTMLResponse)
+async def aap_save_settings(
+    request: Request,
+    url: str = Form(""),
+    token: str = Form(""),
+    verify_ssl: str = Form(""),
+    default_inventory: str = Form(""),
+    default_credential: str = Form(""),
+    default_organization: str = Form(""),
+    default_project: str = Form(""),
+    default_ee: str = Form(""),
+):
+    settings = {
+        "url": url.strip(),
+        "token": token.strip(),
+        "verify_ssl": "true" if verify_ssl else "false",
+        "default_inventory": default_inventory.strip(),
+        "default_credential": default_credential.strip(),
+        "default_organization": default_organization.strip() or "Default",
+        "default_project": default_project.strip(),
+        "default_ee": default_ee.strip(),
+    }
+    AAPSettings.save(settings)
+    _invalidate_aap_client()
+
+    configured = _aap_is_configured()
+    connected = _aap_ping() if configured else False
+
+    if configured and connected:
+        msg = '<span class="ac-success">\u2713 Settings saved. Connection successful.</span>'
+    elif configured:
+        msg = (
+            '<span class="ac-warning">'
+            "\u26a0 Settings saved but connection failed. "
+            "Check the URL and token.</span>"
+        )
+    else:
+        msg = '<span class="ac-success">\u2713 Settings saved.</span>'
+
+    return HTMLResponse(
+        msg,
+        headers={"HX-Trigger-After-Settle": "aapSettingsUpdated"},
+    )
 
 
 @app.get("/aap/ping", response_class=HTMLResponse)
 async def aap_ping():
     if _aap_ping():
-        return HTMLResponse('<span class="ac-success">Connection successful</span>')
-    return HTMLResponse('<span class="ac-error">Connection failed</span>')
+        return HTMLResponse('<span class="ac-success">\u2713 Connection successful</span>')
+    return HTMLResponse('<span class="ac-error">\u2717 Connection failed</span>')
 
 
 # --- AAP resource listing & deployment ---
 
+def _publish_skills_to_repo(repo_url: str, skill_names: list[str]) -> str | None:
+    """Push full skill packages (SKILL.md, assets/, scripts/) to a git repo.
+
+    Returns None on success or an error message string on failure.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    if not repo_url:
+        return "No git repo URL provided"
+
+    parent = tempfile.mkdtemp(prefix="ansibleclaw-publish-")
+    clone_dir = str(Path(parent) / "repo")
+    try:
+        r = subprocess.run(
+            ["git", "clone", "--depth", "1", repo_url, clone_dir],
+            capture_output=True, text=True, timeout=60,
+        )
+        if r.returncode != 0:
+            return f"Git clone failed: {r.stderr.strip()}"
+
+        copied = 0
+        for skill_name in skill_names:
+            src = SKILLS_DIR / skill_name
+            dst = Path(clone_dir) / "skills" / skill_name
+            if not src.exists():
+                continue
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+            copied += sum(1 for _ in dst.rglob("*") if _.is_file())
+
+        if copied == 0:
+            return f"No skill files found locally under {SKILLS_DIR} for: {', '.join(skill_names)}"
+
+        r = subprocess.run(
+            ["git", "add", "skills/"],
+            cwd=clone_dir, capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode != 0:
+            return f"Git add failed: {r.stderr.strip()}"
+
+        r = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=clone_dir, capture_output=True, timeout=10,
+        )
+        if r.returncode == 0:
+            return None
+
+        names_str = ", ".join(skill_names)
+        r = subprocess.run(
+            ["git", "commit", "-m", f"AnsibleClaw: publish {names_str}",
+             "--author", "AnsibleClaw <ansibleclaw@noreply>"],
+            cwd=clone_dir, capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode != 0:
+            return f"Git commit failed: {r.stderr.strip()}"
+
+        r = subprocess.run(
+            ["git", "push"],
+            cwd=clone_dir, capture_output=True, text=True, timeout=60,
+        )
+        if r.returncode != 0:
+            return f"Git push failed: {r.stderr.strip()}"
+
+        return None
+    except subprocess.TimeoutExpired:
+        return "Git operation timed out"
+    except Exception as exc:
+        return f"Publish failed: {exc}"
+    finally:
+        shutil.rmtree(parent, ignore_errors=True)
+
+
+_aap_client_cache: dict[str, "AAPClient"] = {}  # noqa: F821
+
+
 def _get_aap_client():
+    """Return a cached AAPClient so prefix detection only happens once."""
     from ansibleclaw.core.aap import AAPClient, AAPError
     if not _aap_is_configured():
         raise AAPError("AAP is not configured. Set AAP_CONTROLLER_URL and AAP_CONTROLLER_TOKEN.")
-    return AAPClient(
-        base_url=AAP_CONTROLLER_URL,
-        token=AAP_CONTROLLER_TOKEN,
-        verify_ssl=AAP_VERIFY_SSL,
-        organization=AAP_DEFAULT_ORGANIZATION,
-    )
+    cache_key = f"{AAPSettings.get('url')}|{AAPSettings.get('token')}"
+    client = _aap_client_cache.get(cache_key)
+    if client is None:
+        client = AAPClient(
+            base_url=AAPSettings.get("url"),
+            token=AAPSettings.get("token"),
+            verify_ssl=AAPSettings.get_bool("verify_ssl"),
+            organization=AAPSettings.get("default_organization"),
+        )
+        _aap_client_cache.clear()
+        _aap_client_cache[cache_key] = client
+    return client
+
+
+def _invalidate_aap_client():
+    _aap_client_cache.clear()
+
+
+@app.get("/api/aap/organizations")
+async def api_aap_organizations():
+    try:
+        client = _get_aap_client()
+        resources = client.list_organizations()
+        items = [{"id": r["id"], "name": r["name"]} for r in resources]
+        return {"items": items, "default": AAPSettings.get("default_organization")}
+    except Exception as exc:
+        return {"items": [], "error": str(exc)}
 
 
 @app.get("/api/aap/projects")
@@ -674,7 +809,7 @@ async def api_aap_projects():
         client = _get_aap_client()
         resources = client.list_projects()
         items = [{"id": r["id"], "name": r["name"]} for r in resources]
-        return {"items": items, "default": AAP_DEFAULT_PROJECT}
+        return {"items": items, "default": AAPSettings.get("default_project")}
     except Exception as exc:
         return {"items": [], "error": str(exc)}
 
@@ -685,7 +820,7 @@ async def api_aap_ees():
         client = _get_aap_client()
         resources = client.list_execution_environments()
         items = [{"id": r["id"], "name": r["name"]} for r in resources]
-        return {"items": items, "default": AAP_DEFAULT_EE}
+        return {"items": items, "default": AAPSettings.get("default_ee")}
     except Exception as exc:
         return {"items": [], "error": str(exc)}
 
@@ -696,7 +831,7 @@ async def api_aap_inventories():
         client = _get_aap_client()
         resources = client.list_inventories()
         items = [{"id": r["id"], "name": r["name"]} for r in resources]
-        return {"items": items, "default": AAP_DEFAULT_INVENTORY}
+        return {"items": items, "default": AAPSettings.get("default_inventory")}
     except Exception as exc:
         return {"items": [], "error": str(exc)}
 
@@ -707,186 +842,370 @@ async def api_aap_credentials():
         client = _get_aap_client()
         resources = client.list_credentials()
         items = [{"id": r["id"], "name": r["name"]} for r in resources]
-        return {"items": items, "default": AAP_DEFAULT_CREDENTIAL}
+        return {"items": items, "default": AAPSettings.get("default_credential")}
     except Exception as exc:
         return {"items": [], "error": str(exc)}
 
 
-@app.post("/api/aap/deploy-skill", response_class=HTMLResponse)
+@app.get("/api/aap/resources")
+async def api_aap_all_resources():
+    """Fetch projects, EEs, inventories, credentials, and organizations in one call.
+
+    Uses a thread-pool so the five AAP API calls run concurrently, and the
+    cached AAPClient avoids redundant prefix detection.
+    """
+    import concurrent.futures
+
+    try:
+        client = _get_aap_client()
+    except Exception as exc:
+        return {k: {"items": [], "error": str(exc)} for k in (
+            "projects", "execution_environments", "inventories",
+            "credentials", "organizations",
+        )}
+
+    def _fetch(method, default_key, extra_fields=()):
+        try:
+            raw = method()
+            items = []
+            for r in raw:
+                item = {"id": r["id"], "name": r["name"]}
+                for f in extra_fields:
+                    item[f] = r.get(f, "")
+                items.append(item)
+            return {"items": items, "default": AAPSettings.get(default_key)}
+        except Exception as exc:
+            return {"items": [], "error": str(exc)}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        fut_proj = pool.submit(_fetch, client.list_projects, "default_project", ("scm_url",))
+        fut_ee = pool.submit(_fetch, client.list_execution_environments, "default_ee")
+        fut_inv = pool.submit(_fetch, client.list_inventories, "default_inventory")
+        fut_cred = pool.submit(_fetch, client.list_credentials, "default_credential")
+        fut_org = pool.submit(_fetch, client.list_organizations, "default_organization")
+
+    return {
+        "projects": fut_proj.result(),
+        "execution_environments": fut_ee.result(),
+        "inventories": fut_inv.result(),
+        "credentials": fut_cred.result(),
+        "organizations": fut_org.result(),
+    }
+
+
+@app.get("/api/aap/projects-list")
+async def api_aap_projects_list():
+    """Lightweight endpoint returning only the projects list (id, name, scm_url)."""
+    try:
+        client = _get_aap_client()
+        raw = client.list_projects()
+        items = [
+            {"id": r["id"], "name": r["name"], "scm_url": r.get("scm_url", "")}
+            for r in raw
+        ]
+        return {"items": items}
+    except Exception as exc:
+        return {"items": [], "error": str(exc)}
+
+
+@app.get("/api/aap/project-context/{project_id}")
+async def api_aap_project_context(project_id: int):
+    """Fetch project details plus org/inventory/credential/EE lists in one call.
+
+    Returns the project's scm_url, owning organisation name, and the resolved
+    default-EE name so the frontend can auto-select them.
+    """
+    import concurrent.futures
+
+    try:
+        client = _get_aap_client()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    try:
+        project = client.get_project(project_id)
+    except Exception as exc:
+        return {"error": f"Failed to fetch project: {exc}"}
+
+    def _fetch_list(method):
+        try:
+            raw = method()
+            return {"items": [{"id": r["id"], "name": r["name"]} for r in raw]}
+        except Exception as exc:
+            return {"items": [], "error": str(exc)}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        fut_org = pool.submit(_fetch_list, client.list_organizations)
+        fut_inv = pool.submit(_fetch_list, client.list_inventories)
+        fut_cred = pool.submit(_fetch_list, client.list_credentials)
+        fut_ee = pool.submit(_fetch_list, client.list_execution_environments)
+
+    org_id = project.get("organization")
+    org_name = ""
+    org_result = fut_org.result()
+    for org in org_result.get("items", []):
+        if org["id"] == org_id:
+            org_name = org["name"]
+            break
+
+    ee_id = project.get("default_environment")
+    ee_name = ""
+    ee_result = fut_ee.result()
+    if ee_id:
+        for ee in ee_result.get("items", []):
+            if ee["id"] == ee_id:
+                ee_name = ee["name"]
+                break
+
+    return {
+        "project": {
+            "id": project["id"],
+            "name": project["name"],
+            "scm_url": project.get("scm_url", ""),
+            "organization": org_id,
+            "default_environment": ee_id,
+        },
+        "organization_name": org_name,
+        "ee_name": ee_name,
+        "organizations": org_result,
+        "inventories": fut_inv.result(),
+        "credentials": fut_cred.result(),
+        "execution_environments": ee_result,
+    }
+
+
+@app.get("/api/aap/project-playbooks/{project_id}")
+async def api_aap_project_playbooks(project_id: int):
+    """List playbooks AAP sees for a given project (diagnostic helper)."""
+    try:
+        client = _get_aap_client()
+        playbooks = client.list_project_playbooks(project_id)
+        project_info = client.get_project(project_id)
+        return {
+            "project_id": project_id,
+            "scm_url": project_info.get("scm_url", ""),
+            "playbooks": playbooks,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _step(msg: str) -> str:
+    return f'<div style="padding:0.2rem 0;color:var(--pf-t--global--text--color--subtle);">\u23f3 {msg}</div>\n'
+
+
+def _ok(msg: str) -> str:
+    return f'<div class="ac-success" style="padding:0.2rem 0;">\u2713 {msg}</div>\n'
+
+
+def _err(msg: str) -> str:
+    return f'<div class="ac-error" style="padding:0.2rem 0;">\u2717 {msg}</div>\n'
+
+
+@app.post("/api/aap/deploy-skill")
 async def api_aap_deploy_skill(
     skill_name: str = Form(...),
     job_template_name: str = Form(""),
     project_id: str = Form(""),
-    scm_url: str = Form(""),
+    playbook_path: str = Form(""),
     ee_id: str = Form(""),
     inventory_id: str = Form(...),
     credential_id: str = Form(""),
     collection_fqcn: str = Form(""),
 ):
-    from ansibleclaw.core.aap import AAPError
+    from starlette.responses import StreamingResponse
 
-    try:
-        client = _get_aap_client()
-    except Exception as exc:
-        return HTMLResponse(f'<span class="ac-error">{exc}</span>', status_code=400)
+    def steps():
+        from ansibleclaw.core.aap import AAPError
 
-    jt_name = job_template_name or skill_name
+        try:
+            client = _get_aap_client()
+        except Exception as exc:
+            yield _err(str(exc))
+            return
 
-    try:
-        actual_project_id: int
-        if project_id and project_id != "__new__":
-            actual_project_id = int(project_id)
-        elif scm_url:
-            project = client.create_project(
-                name=f"AnsibleClaw - {jt_name}",
-                scm_url=scm_url,
-            )
-            actual_project_id = project["id"]
-            try:
-                client.sync_project(actual_project_id)
-            except AAPError:
-                pass
-        else:
-            return HTMLResponse(
-                '<span class="ac-error">Select a Project or provide a Git repo URL.</span>',
-                status_code=400,
-            )
+        if not project_id:
+            yield _err("Select a Project.")
+            return
 
-        skill_dir = _resolve_skill_dir(skill_name)
-        if skill_dir and (skill_dir / "assets" / "playbook.yml").exists():
-            playbook_path = f"skills/{skill_name}/assets/playbook.yml"
-        else:
-            playbook_path = f"skills/{skill_name}/assets/playbook.yml"
-
-        result = client.create_job_template(
-            name=jt_name,
-            project_id=actual_project_id,
-            playbook=playbook_path,
-            inventory_id=int(inventory_id),
-            ee_id=int(ee_id) if ee_id else None,
-        )
-
-        template_id = result.get("id", "")
-        if credential_id:
-            try:
-                client.add_credential_to_template(template_id, int(credential_id))
-            except AAPError:
-                pass
-
-        jt_url = f"{AAP_CONTROLLER_URL}/#/templates/job_template/{template_id}/details"
-        collection_note = ""
-        if collection_fqcn:
-            collection_note = (
-                f' <small>(Ensure your EE includes <code>{collection_fqcn}</code>)</small>'
-            )
-
-        return HTMLResponse(
-            f'<span class="ac-success">'
-            f'\u2713 Job Template <strong>{jt_name}</strong> created '
-            f'(<a href="{jt_url}" target="_blank">View in AAP</a>)'
-            f'{collection_note}</span>'
-        )
-    except AAPError as exc:
-        return HTMLResponse(
-            f'<span class="ac-error">Deploy failed: {exc}</span>',
-            status_code=400,
-        )
-
-
-@app.post("/api/aap/deploy-collection", response_class=HTMLResponse)
-async def api_aap_deploy_collection(
-    collection: str = Form(...),
-    project_id: str = Form(""),
-    scm_url: str = Form(""),
-    ee_id: str = Form(""),
-    inventory_id: str = Form(...),
-    credential_id: str = Form(""),
-):
-    from ansibleclaw.core.aap import AAPError
-    from ansibleclaw.cli import _module_to_skill_name
-
-    try:
-        client = _get_aap_client()
-    except Exception as exc:
-        return HTMLResponse(f'<span class="ac-error">{exc}</span>', status_code=400)
-
-    actual_project_id: int
-    if project_id and project_id != "__new__":
+        jt_name = job_template_name or skill_name
         actual_project_id = int(project_id)
-    elif scm_url:
+        effective_playbook = playbook_path.strip() or f"skills/{skill_name}/assets/playbook.yml"
+
         try:
-            project = client.create_project(
-                name=f"AnsibleClaw - {collection}",
-                scm_url=scm_url,
-            )
-            actual_project_id = project["id"]
-            try:
-                client.sync_project(actual_project_id)
-            except AAPError:
-                pass
-        except AAPError as exc:
-            return HTMLResponse(
-                f'<span class="ac-error">Project creation failed: {exc}</span>',
-                status_code=400,
-            )
-    else:
-        return HTMLResponse(
-            '<span class="ac-error">Select a Project or provide a Git repo URL.</span>',
-            status_code=400,
-        )
+            yield _step("Fetching project info\u2026")
+            project_info = client.get_project(actual_project_id)
+            scm_url = project_info.get("scm_url", "")
+            yield _ok(f"Project: <strong>{project_info.get('name', project_id)}</strong>")
 
-    try:
-        modules = list_modules(namespace=collection)
-    except AnsibleDocError as exc:
-        return HTMLResponse(
-            f'<span class="ac-error">Cannot list modules: {exc}</span>',
-            status_code=400,
-        )
+            if scm_url:
+                yield _step("Publishing skills to git repo\u2026")
+                pub_err = _publish_skills_to_repo(scm_url, [skill_name])
+                if pub_err:
+                    yield _err(f"Publish to git failed: {pub_err}")
+                    return
+                yield _ok("Skills pushed to git repo")
 
-    successes: list[str] = []
-    failures: list[str] = []
+                yield _step("Syncing AAP project (this may take a moment)\u2026")
+                client.sync_project_and_wait(actual_project_id)
+                yield _ok("Project synced")
 
-    for module_name in sorted(modules.keys()):
-        skill_dir_name = _module_to_skill_name(module_name)
-        skill_dir = _resolve_skill_dir(skill_dir_name)
-        if not skill_dir or not (skill_dir / "assets" / "playbook.yml").exists():
-            failures.append(f"{module_name}: skill not generated yet")
-            continue
+                yield _step("Verifying playbook in project\u2026")
+                playbooks = client.list_project_playbooks(actual_project_id)
+                if effective_playbook not in playbooks:
+                    avail = ", ".join(playbooks[:20]) if playbooks else "(none)"
+                    yield _err(
+                        f"Playbook <code>{effective_playbook}</code> not found after sync. "
+                        f"Available: {avail}"
+                    )
+                    return
+                yield _ok(f"Playbook verified: <code>{effective_playbook}</code>")
 
-        jt_name = skill_dir_name.replace("_", "-")
-        playbook_path = f"skills/{skill_dir_name}/assets/playbook.yml"
-        try:
+            yield _step("Creating Job Template\u2026")
             result = client.create_job_template(
                 name=jt_name,
                 project_id=actual_project_id,
-                playbook=playbook_path,
+                playbook=effective_playbook,
                 inventory_id=int(inventory_id),
                 ee_id=int(ee_id) if ee_id else None,
             )
             template_id = result.get("id", "")
+            yield _ok(f"Job Template <strong>{jt_name}</strong> created (ID: {template_id})")
+
             if credential_id:
+                yield _step("Attaching credential\u2026")
                 try:
                     client.add_credential_to_template(template_id, int(credential_id))
+                    yield _ok("Credential attached")
                 except AAPError:
-                    pass
-            successes.append(f"{jt_name} (ID: {template_id})")
+                    yield _err("Could not attach credential (non-fatal)")
+
+            aap_url = AAPSettings.get("url")
+            jt_url = f"{aap_url}/#/templates/job_template/{template_id}/details"
+            collection_note = ""
+            if collection_fqcn:
+                collection_note = (
+                    f' <small>(Ensure your EE includes <code>{collection_fqcn}</code>)</small>'
+                )
+            yield (
+                f'<div style="margin-top:0.5rem;padding:0.5rem 0.75rem;border-radius:var(--pf-t--global--border--radius--small);'
+                f'background:var(--pf-t--global--background--color--secondary--default);">'
+                f'<span class="ac-success"><strong>Deploy complete.</strong> '
+                f'<a href="{jt_url}" target="_blank">View Job Template in AAP</a>'
+                f'{collection_note}</span></div>\n'
+            )
         except AAPError as exc:
-            failures.append(f"{module_name}: {exc}")
+            yield _err(f"Deploy failed: {exc}")
 
-    parts: list[str] = []
-    if successes:
-        items = "".join(f"<li>{s}</li>" for s in successes)
-        parts.append(
-            f'<p class="ac-success">\u2713 {len(successes)} Job Template(s) created:</p>'
-            f"<ul>{items}</ul>"
-        )
-    if failures:
-        items = "".join(f"<li>{f}</li>" for f in failures)
-        parts.append(
-            f'<p class="ac-error">{len(failures)} failed:</p>'
-            f"<ul>{items}</ul>"
-        )
-    if not parts:
-        parts.append('<span class="ac-warning">No module skills found for this collection.</span>')
+    return StreamingResponse(steps(), media_type="text/html")
 
-    return HTMLResponse("".join(parts))
+
+@app.post("/api/aap/deploy-collection")
+async def api_aap_deploy_collection(
+    collection: str = Form(...),
+    project_id: str = Form(""),
+    playbook_path: str = Form(""),
+    ee_id: str = Form(""),
+    inventory_id: str = Form(...),
+    credential_id: str = Form(""),
+):
+    from starlette.responses import StreamingResponse
+
+    def steps():
+        from ansibleclaw.core.aap import AAPError
+        from ansibleclaw.cli import _module_to_skill_name
+
+        try:
+            client = _get_aap_client()
+        except Exception as exc:
+            yield _err(str(exc))
+            return
+
+        if not project_id:
+            yield _err("Select a Project.")
+            return
+
+        actual_project_id = int(project_id)
+
+        yield _step("Listing modules in collection\u2026")
+        try:
+            modules = list_modules(namespace=collection)
+        except AnsibleDocError as exc:
+            yield _err(f"Cannot list modules: {exc}")
+            return
+
+        all_skill_names = [
+            _module_to_skill_name(m) for m in sorted(modules.keys())
+        ]
+        yield _ok(f"Found {len(all_skill_names)} module(s) in <strong>{collection}</strong>")
+
+        yield _step("Fetching project info\u2026")
+        try:
+            project_info = client.get_project(actual_project_id)
+        except AAPError as exc:
+            yield _err(f"Cannot read project: {exc}")
+            return
+        yield _ok(f"Project: <strong>{project_info.get('name', project_id)}</strong>")
+
+        scm_url = project_info.get("scm_url", "")
+        if scm_url:
+            yield _step(f"Publishing {len(all_skill_names)} skill(s) to git repo\u2026")
+            pub_err = _publish_skills_to_repo(scm_url, all_skill_names)
+            if pub_err:
+                yield _err(f"Publish to git failed: {pub_err}")
+                return
+            yield _ok("Skills pushed to git repo")
+
+            yield _step("Syncing AAP project (this may take a moment)\u2026")
+            try:
+                client.sync_project_and_wait(actual_project_id)
+            except AAPError as exc:
+                yield _err(f"Project sync failed: {exc}")
+                return
+            yield _ok("Project synced")
+
+        base_playbook_dir = playbook_path.strip().rstrip("/") if playbook_path.strip() else ""
+
+        yield _step("Creating Job Templates\u2026")
+        successes = 0
+        failures = []
+        for skill_dir_name in all_skill_names:
+            jt_name = skill_dir_name.replace("_", "-")
+            if base_playbook_dir:
+                effective_pb = f"{base_playbook_dir}/skills/{skill_dir_name}/assets/playbook.yml"
+            else:
+                effective_pb = f"skills/{skill_dir_name}/assets/playbook.yml"
+            try:
+                result = client.create_job_template(
+                    name=jt_name,
+                    project_id=actual_project_id,
+                    playbook=effective_pb,
+                    inventory_id=int(inventory_id),
+                    ee_id=int(ee_id) if ee_id else None,
+                )
+                template_id = result.get("id", "")
+                if credential_id:
+                    try:
+                        client.add_credential_to_template(template_id, int(credential_id))
+                    except AAPError:
+                        pass
+                successes += 1
+                yield _ok(f"<strong>{jt_name}</strong> (ID: {template_id})")
+            except AAPError as exc:
+                failures.append(jt_name)
+                yield _err(f"<strong>{jt_name}</strong>: {exc}")
+
+        summary_parts = []
+        if successes:
+            summary_parts.append(f"{successes} created")
+        if failures:
+            summary_parts.append(f"{len(failures)} failed")
+        summary = ", ".join(summary_parts) if summary_parts else "No modules found"
+
+        yield (
+            f'<div style="margin-top:0.5rem;padding:0.5rem 0.75rem;border-radius:var(--pf-t--global--border--radius--small);'
+            f'background:var(--pf-t--global--background--color--secondary--default);">'
+            f'<strong>Deploy complete.</strong> {summary}</div>\n'
+        )
+
+    return StreamingResponse(steps(), media_type="text/html")

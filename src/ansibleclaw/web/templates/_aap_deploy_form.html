@@ -24,25 +24,19 @@
                 {% if aap_configured %}
                 Deploying this {% if deploy_target == "collection" %}collection{% else %}skill{% endif %} will create
                 {% if deploy_target == "collection" %}one Job Template per module skill{% else %}a Job Template{% endif %}
-                in your AAP Controller, linking the generated playbook with your chosen Project, Execution Environment, Inventory, and Credential.
+                in your AAP Controller. Playbooks are automatically pushed to the
+                selected Project's git repo and synced before the Job Template is created.
                 {% else %}
                 Ansible Automation Platform (AAP) is the recommended way to run generated skills in production.
-                To enable deployment, set the following environment variables and restart:
-                <code style="display:block;margin-top:0.5rem;padding:0.5rem;border-radius:4px;background:var(--pf-t--global--background--color--primary--default);font-size:0.8125rem;">export AAP_CONTROLLER_URL="https://your-aap-controller"
-export AAP_CONTROLLER_TOKEN="your-oauth-token"</code>
                 <span style="display:block;margin-top:0.5rem;">
-                    Visit the <a href="/aap">AAP settings page</a> for more configuration options.
+                    Visit the <a href="/aap">AAP settings page</a> to configure your controller connection.
                 </span>
                 {% endif %}
             </p>
         </div>
 
         {% if aap_configured %}
-        <form id="aap-deploy-form"
-              hx-post="{{ deploy_action }}"
-              hx-target="#aap-deploy-result"
-              hx-swap="innerHTML"
-              hx-indicator="#aap-deploy-spinner">
+        <form id="aap-deploy-form" action="{{ deploy_action }}" method="POST">
             {% if deploy_target == "skill" %}
             <input type="hidden" name="skill_name" value="{{ deploy_name }}">
             {% elif deploy_target == "collection" %}
@@ -71,22 +65,30 @@ export AAP_CONTROLLER_TOKEN="your-oauth-token"</code>
                     <span class="pf-v6-c-form__label-text">Project</span>
                 </label>
                 <span class="pf-v6-c-form-control">
-                    <select id="aap-project" name="project_id">
+                    <select id="aap-project" name="project_id" required>
                         <option value="">Loading...</option>
                     </select>
                 </span>
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);margin-top:0.25rem;display:block;">
+                    The playbook will be pushed to this Project's git repo automatically.
+                    Ensure AnsibleClaw has write access (SSH key or HTTPS credentials).
+                </small>
             </div>
 
-            {# New Project fields (hidden by default) #}
-            <div id="new-project-fields" style="display:none;margin-bottom:0.75rem;padding-left:1rem;border-left:3px solid var(--pf-t--global--border--color--default);">
-                <div class="pf-v6-c-form__group" style="margin-bottom:0.5rem;">
-                    <label class="pf-v6-c-form__label" for="scm-url">
-                        <span class="pf-v6-c-form__label-text">Git Repo URL</span>
-                    </label>
-                    <span class="pf-v6-c-form-control">
-                        <input type="url" id="scm-url" name="scm_url" placeholder="https://github.com/...">
-                    </span>
-                </div>
+            {# Playbook Path #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="playbook-path">
+                    <span class="pf-v6-c-form__label-text">Playbook Path (in Project repo)</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    {% if deploy_target == "skill" %}
+                    <input type="text" id="playbook-path" name="playbook_path"
+                           value="skills/{{ deploy_name }}/assets/playbook.yml" required>
+                    {% else %}
+                    <input type="text" id="playbook-path" name="playbook_path"
+                           value="" placeholder="(leave empty for default paths)">
+                    {% endif %}
+                </span>
             </div>
 
             {# Execution Environment #}
@@ -134,7 +136,6 @@ export AAP_CONTROLLER_TOKEN="your-oauth-token"</code>
                 <button type="submit" class="pf-v6-c-button pf-m-primary" id="btn-aap-deploy">
                     {% if deploy_target == "collection" %}Deploy Collection to AAP{% else %}Deploy to AAP{% endif %}
                 </button>
-                <span id="aap-deploy-spinner" class="htmx-indicator" aria-busy="true">Deploying...</span>
             </div>
         </form>
 
@@ -147,55 +148,77 @@ export AAP_CONTROLLER_TOKEN="your-oauth-token"</code>
 {% if aap_configured %}
 <script>
 (function() {
-    function loadOptions(selectId, apiUrl) {
+    function populateSelect(selectId, data) {
         var sel = document.getElementById(selectId);
         if (!sel) return;
-        fetch(apiUrl)
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                sel.innerHTML = '';
-                if (data.error) {
-                    sel.innerHTML = '<option value="">Error: ' + data.error + '</option>';
-                    return;
-                }
-                if (selectId === 'aap-project') {
-                    var opt = document.createElement('option');
-                    opt.value = '__new__';
-                    opt.textContent = '+ Create New Project';
-                    sel.appendChild(opt);
-                }
-                var items = data.items || [];
-                var defaultName = (data.default || '').toLowerCase();
-                for (var i = 0; i < items.length; i++) {
-                    var opt = document.createElement('option');
-                    opt.value = items[i].id;
-                    opt.textContent = items[i].name;
-                    if (items[i].name.toLowerCase() === defaultName) {
-                        opt.selected = true;
-                    }
-                    sel.appendChild(opt);
-                }
-                if (selectId === 'aap-project') toggleNewProject();
-            })
-            .catch(function() {
-                sel.innerHTML = '<option value="">Failed to load</option>';
+        sel.innerHTML = '';
+        if (data.error) {
+            sel.innerHTML = '<option value="">Error: ' + data.error + '</option>';
+            return;
+        }
+        var items = data.items || [];
+        var defaultName = (data.default || '').toLowerCase();
+        if (selectId !== 'aap-project') {
+            var empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = '-- none --';
+            sel.appendChild(empty);
+        }
+        for (var i = 0; i < items.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = items[i].id;
+            opt.textContent = items[i].name;
+            if (items[i].name.toLowerCase() === defaultName) {
+                opt.selected = true;
+            }
+            sel.appendChild(opt);
+        }
+    }
+
+    fetch('/api/aap/resources')
+        .then(function(r) { return r.json(); })
+        .then(function(all) {
+            populateSelect('aap-project', all.projects || {});
+            populateSelect('aap-ee', all.execution_environments || {});
+            populateSelect('aap-inventory', all.inventories || {});
+            populateSelect('aap-credential', all.credentials || {});
+        })
+        .catch(function() {
+            ['aap-project','aap-ee','aap-inventory','aap-credential'].forEach(function(id) {
+                var s = document.getElementById(id);
+                if (s) s.innerHTML = '<option value="">Failed to load</option>';
             });
+        });
+
+    var form = document.getElementById('aap-deploy-form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var resultDiv = document.getElementById('aap-deploy-result');
+            var btn = document.getElementById('btn-aap-deploy');
+            btn.disabled = true;
+            resultDiv.innerHTML = '';
+
+            fetch(form.action, { method: 'POST', body: new FormData(form) })
+                .then(function(response) {
+                    var reader = response.body.getReader();
+                    var decoder = new TextDecoder();
+                    function pump() {
+                        return reader.read().then(function(r) {
+                            if (r.done) { btn.disabled = false; return; }
+                            resultDiv.innerHTML += decoder.decode(r.value, { stream: true });
+                            resultDiv.scrollTop = resultDiv.scrollHeight;
+                            return pump();
+                        });
+                    }
+                    return pump();
+                })
+                .catch(function() {
+                    resultDiv.innerHTML = '<span class="ac-error">Failed to reach server</span>';
+                    btn.disabled = false;
+                });
+        });
     }
-
-    function toggleNewProject() {
-        var sel = document.getElementById('aap-project');
-        var fields = document.getElementById('new-project-fields');
-        if (!sel || !fields) return;
-        fields.style.display = sel.value === '__new__' ? '' : 'none';
-    }
-
-    var projSel = document.getElementById('aap-project');
-    if (projSel) projSel.addEventListener('change', toggleNewProject);
-
-    loadOptions('aap-project', '/api/aap/projects');
-    loadOptions('aap-ee', '/api/aap/execution-environments');
-    loadOptions('aap-inventory', '/api/aap/inventories');
-    loadOptions('aap-credential', '/api/aap/credentials');
 })();
 </script>
 {% endif %}

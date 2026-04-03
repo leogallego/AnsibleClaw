@@ -41,3 +41,4 @@ coverage.xml
 # mypy / type checkers
 .mypy_cache/
 .pytype/
+.ansibleclaw.yml

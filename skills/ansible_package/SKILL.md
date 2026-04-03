@@ -1,48 +1,17 @@
 ---
-name: ansible-{{ skill_name | replace('_', '-') }}
+name: ansible-package
 description: >-
-  {{ short_description }}
-  Use when managing {{ skill_name | replace('_', ' ') }} resources on remote hosts via Ansible.
+  Generic OS package manager
+  Use when managing package resources on remote hosts via Ansible.
 ---
 
-# {{ module_name }}
+# ansible.builtin.package
 
-{{ short_description }}
-{% if doc_warning is defined and doc_warning %}
-
-> **Note**: {{ doc_warning }}
-{% endif %}
-{% if collection_fqcn %}
-
-## Collection Requirement
-
-This module requires the `{{ collection_fqcn }}` collection.
-
-**CLI mode** (local execution):
-
-```bash
-ansible-galaxy collection install {{ collection_fqcn }}
-```
-
-**AAP mode** (Execution Environments):
-Collections are bundled into Execution Environments (EEs). If this module is unavailable
-in your EE, update your `execution-environment.yml` and rebuild:
-
-```yaml
-dependencies:
-  galaxy:
-    collections:
-      - name: {{ collection_fqcn }}
-```
-
-```bash
-ansible-builder build -t my-ee:latest
-```
-{% endif %}
+Generic OS package manager
 
 ## When to Use This Skill
 
-Use the `{{ module_name }}` Ansible module when you need to manage {{ skill_name | replace('_', ' ') }} on remote hosts. This is preferable to local CLI commands when:
+Use the `ansible.builtin.package` Ansible module when you need to manage package on remote hosts. This is preferable to local CLI commands when:
 
 - Targeting one or more **remote** hosts over SSH
 - You need **idempotent** state management (ensure a desired state, not just run a command)
@@ -54,42 +23,55 @@ Do **not** use this for basic local file operations or CLI tasks that the agent 
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-{% for p in params -%}
-| `{{ p.name }}` | {{ p.type }} | {{ "yes" if p.required else "no" }} | {{ p.default if p.default is not none else "-" }} | {{ p.description | truncate(120) }} |
-{% endfor %}
-{% if params | selectattr("choices") | list %}
-### Parameter Choices
-
-{% for p in params %}{% if p.choices %}
-- **{{ p.name }}**: {{ p.choices | join(", ") }}
-{% endif %}{% endfor %}
-{% endif %}
+| `name` | str | yes | - | Package name, or package specifier with version. Syntax varies with package manager. For example V(name-1.0) or... |
+| `state` | str | yes | - | Whether to install (V(present)), or remove (V(absent)) a package. You can use other states like V(latest) ONLY if... |
+| `use` | str | no | auto | The required package manager module to use (V(dnf), V(apt), and so on). The default V(auto) will use existing facts... |
 
 ## Local Execution (CLI)
 
 Run this module using the `ansible` CLI (from `ansible-core`):
 
 ```bash
-ansible <host-pattern> -m {{ module_name }} -a "<key=value arguments>" -b --check --diff
+ansible <host-pattern> -m ansible.builtin.package -a "<key=value arguments>" -b --check --diff
 ```
 
 ### Quick Examples
 
 ```bash
 # Dry-run first (always recommended for destructive operations)
-ansible webservers -m {{ module_name }} -a "{{ example_args }}" -b --check --diff
+ansible webservers -m ansible.builtin.package -a "name=ntpdate state=present" -b --check --diff
 
 # Apply the change
-ansible webservers -m {{ module_name }} -a "{{ example_args }}" -b --diff
+ansible webservers -m ansible.builtin.package -a "name=ntpdate state=present" -b --diff
 ```
 
-{% if examples %}
 ### Examples from Ansible Documentation
 
 ```yaml
-{{ examples }}
+- name: Install ntpdate
+  ansible.builtin.package:
+    name: ntpdate
+    state: present
+
+# This uses a variable as this changes per distribution.
+- name: Remove the apache package
+  ansible.builtin.package:
+    name: "{{ apache }}"
+    state: absent
+
+- name: Install the latest version of Apache and MariaDB
+  ansible.builtin.package:
+    name:
+      - httpd
+      - mariadb-server
+    state: latest
+
+- name: Use the dnf package manager to install httpd
+  ansible.builtin.package:
+    name: httpd
+    state: present
+    use: dnf
 ```
-{% endif %}
 
 ## Key Flags
 
@@ -106,7 +88,7 @@ ansible webservers -m {{ module_name }} -a "{{ example_args }}" -b --diff
 To get structured JSON output for programmatic parsing:
 
 ```bash
-ANSIBLE_STDOUT_CALLBACK=json ansible <hosts> -m {{ module_name }} -a "<args>" -b
+ANSIBLE_STDOUT_CALLBACK=json ansible <hosts> -m ansible.builtin.package -a "<args>" -b
 ```
 
 Or set `stdout_callback = json` in your `ansible.cfg` (AnsibleClaw projects include this by default).
@@ -124,7 +106,7 @@ When running from inside the AnsibleClaw project, `ansible.cfg` sets the default
 - Specify inventory explicitly: `-i /path/to/inventory.yml`
 - Set environment variable: `export ANSIBLE_INVENTORY=/path/to/inventory.yml`
 - Use Ansible's default: `/etc/ansible/hosts`
-- Target a single host directly: `ansible <hostname>, -m {{ module_name }} -a "..."` (note the trailing comma)
+- Target a single host directly: `ansible <hostname>, -m ansible.builtin.package -a "..."` (note the trailing comma)
 
 ## Production Execution (AAP)
 
@@ -148,10 +130,10 @@ the correct API path for both classic AAP/AWX (`/api/v2`) and AAP 2.5+
 Gateway (`/api/controller/v2`), polls until completion, and prints JSON:
 
 ```bash
-python3 scripts/aap_run.py adhoc "{{ example_args }}" --inventory "My Inventory" --credential "Machine Cred"
+python3 scripts/aap_run.py adhoc "name=ntpdate state=present" --inventory "My Inventory" --credential "Machine Cred"
 
 # Dry-run
-python3 scripts/aap_run.py adhoc "{{ example_args }}" --inventory "My Inventory" --credential "Machine Cred" --check
+python3 scripts/aap_run.py adhoc "name=ntpdate state=present" --inventory "My Inventory" --credential "Machine Cred" --check
 ```
 
 ### Job Template Launch via AAP
@@ -160,9 +142,9 @@ If a job template exists for this module's playbook (create one from the
 AnsibleClaw web dashboard or the AAP UI):
 
 ```bash
-python3 scripts/aap_run.py launch "{{ skill_name }}-deploy" --extra-vars '{"target_hosts": "webservers"}'
+python3 scripts/aap_run.py launch "package-deploy" --extra-vars '{"target_hosts": "webservers"}'
 
-python3 scripts/aap_run.py launch "{{ skill_name }}-deploy" --limit "web1.example.com"
+python3 scripts/aap_run.py launch "package-deploy" --limit "web1.example.com"
 ```
 
 ### Checking Job Status

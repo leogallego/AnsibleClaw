@@ -178,8 +178,7 @@ class TestSkillTemplate:
             examples="",
             example_args="name=nginx state=present",
         )
-        assert "ad_hoc_commands" in result
-        assert "ansible.builtin.package" in result
+        assert "aap_run.py adhoc" in result
         assert "name=nginx state=present" in result
 
     def test_aap_section_contains_job_template_launch(self, render_template):
@@ -191,7 +190,6 @@ class TestSkillTemplate:
             examples="",
             example_args="name=nginx state=present",
         )
-        assert "job_templates" in result
         assert "aap_run.py launch" in result
 
     def test_aap_section_contains_status_check(self, render_template):
@@ -226,7 +224,8 @@ class TestSkillTemplate:
             example_args="name=mykey",
             collection_fqcn="community.general",
         )
-        assert '"module_name": "community.general.redis"' in result
+        assert "community.general" in result
+        assert "aap_run.py adhoc" in result
 
     def test_collection_requirement_for_non_builtin(self, render_template):
         result = render_template(

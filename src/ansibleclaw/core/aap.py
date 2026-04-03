@@ -2,6 +2,10 @@
 
 Lightweight wrapper around the AAP/AWX v2 REST API for listing resources
 and creating Job Templates.  Uses only stdlib (urllib + json).
+
+Supports both classic AWX / AAP 2.4 (``/api/v2/``) and AAP 2.5+ Gateway
+(``/api/controller/v2/``).  The correct prefix is auto-detected on the
+first API call and cached for the lifetime of the client.
 """
 
 from __future__ import annotations
@@ -18,6 +22,14 @@ class AAPError(Exception):
     """Raised when an AAP API request fails."""
 
 
+# Prefixes to probe, in order.  The first one that responds to a lightweight
+# GET is used for all subsequent requests.
+_API_PREFIXES = [
+    "/api/v2",
+    "/api/controller/v2",
+]
+
+
 class AAPClient:
     """Interact with an AAP/AWX Controller via its REST API."""
 
@@ -32,6 +44,7 @@ class AAPClient:
         self._token = token
         self._verify = verify_ssl
         self._org = organization
+        self._api_prefix: str | None = None
 
     # ------------------------------------------------------------------
     # HTTP helpers
@@ -45,13 +58,12 @@ class AAPClient:
             return ctx
         return None
 
-    def _request(
+    def _raw_request(
         self,
         method: str,
-        path: str,
+        url: str,
         data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        url = f"{self._base}{path}"
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Content-Type": "application/json",
@@ -71,6 +83,41 @@ class AAPClient:
             )
         except urllib.error.URLError as exc:
             raise AAPError(f"AAP connection error: {exc.reason}")
+
+    # ------------------------------------------------------------------
+    # API prefix auto-detection
+    # ------------------------------------------------------------------
+
+    def _detect_prefix(self) -> str:
+        """Probe known API prefixes and return the first that responds."""
+        for prefix in _API_PREFIXES:
+            try:
+                url = f"{self._base}{prefix}/ping/"
+                self._raw_request("GET", url)
+                return prefix
+            except AAPError:
+                continue
+        return _API_PREFIXES[0]
+
+    @property
+    def api_prefix(self) -> str:
+        if self._api_prefix is None:
+            self._api_prefix = self._detect_prefix()
+        return self._api_prefix
+
+    # ------------------------------------------------------------------
+    # Request wrappers that use the detected prefix
+    # ------------------------------------------------------------------
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Issue a request against ``{base}/{api_prefix}{path}``."""
+        url = f"{self._base}{self.api_prefix}{path}"
+        return self._raw_request(method, url, data)
 
     def _get(self, path: str) -> dict[str, Any]:
         return self._request("GET", path)
@@ -94,21 +141,34 @@ class AAPClient:
         return data.get("results", [])
 
     def list_organizations(self) -> list[dict[str, Any]]:
-        return self._list_resources("/api/v2/organizations/")
+        try:
+            return self._list_resources("/organizations/")
+        except AAPError:
+            pass
+        # AAP 2.5 may serve orgs from the gateway API instead of controller.
+        try:
+            url = f"{self._base}/api/gateway/v1/organizations/?page_size=200"
+            data = self._raw_request("GET", url)
+            return data.get("results", [])
+        except AAPError:
+            return [{"id": 1, "name": self._org}]
 
     def list_projects(self) -> list[dict[str, Any]]:
-        return self._list_resources("/api/v2/projects/")
+        return self._list_resources("/projects/")
+
+    def get_project(self, project_id: int) -> dict[str, Any]:
+        return self._get(f"/projects/{project_id}/")
 
     def list_execution_environments(self) -> list[dict[str, Any]]:
-        return self._list_resources("/api/v2/execution_environments/")
+        return self._list_resources("/execution_environments/")
 
     def list_inventories(self) -> list[dict[str, Any]]:
-        return self._list_resources("/api/v2/inventories/")
+        return self._list_resources("/inventories/")
 
     def list_credentials(self, credential_type: str = "Machine") -> list[dict[str, Any]]:
         encoded = urllib.parse.quote(credential_type)
         return self._list_resources(
-            "/api/v2/credentials/",
+            "/credentials/",
             extra_params=f"&credential_type__name={encoded}",
         )
 
@@ -132,7 +192,7 @@ class AAPClient:
         return results[0]["id"]
 
     def resolve_organization_id(self) -> int:
-        return self.resolve_id("/api/v2/organizations/", self._org)
+        return self.resolve_id("/organizations/", self._org)
 
     # ------------------------------------------------------------------
     # Project management
@@ -154,10 +214,47 @@ class AAPClient:
         }
         if scm_credential_id:
             payload["credential"] = scm_credential_id
-        return self._post("/api/v2/projects/", payload)
+        return self._post("/projects/", payload)
 
     def sync_project(self, project_id: int) -> dict[str, Any]:
-        return self._post(f"/api/v2/projects/{project_id}/update/", {})
+        return self._post(f"/projects/{project_id}/update/", {})
+
+    def list_project_playbooks(self, project_id: int) -> list[str]:
+        """Return the list of playbook paths AAP knows about for a project."""
+        data = self._get(f"/projects/{project_id}/playbooks/")
+        if isinstance(data, list):
+            return data
+        return data.get("results", data.get("playbooks", []))
+
+    def sync_project_and_wait(
+        self,
+        project_id: int,
+        timeout: int = 120,
+        poll_interval: float = 3.0,
+    ) -> dict[str, Any]:
+        """Trigger a project sync and block until it finishes or times out."""
+        import time
+
+        result = self.sync_project(project_id)
+        job_url = result.get("url")
+        if not job_url:
+            return result
+
+        full_url = f"{self._base}{job_url}" if job_url.startswith("/") else job_url
+        terminal = {"successful", "failed", "error", "canceled"}
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            job = self._raw_request("GET", full_url)
+            status = job.get("status", "unknown")
+            if status in terminal:
+                if status != "successful":
+                    raise AAPError(
+                        f"Project sync {status}: "
+                        f"{job.get('result_traceback', '')[:200]}"
+                    )
+                return job
+            time.sleep(poll_interval)
+        raise AAPError(f"Project sync timed out after {timeout}s")
 
     # ------------------------------------------------------------------
     # Job Template creation
@@ -185,7 +282,7 @@ class AAPClient:
             payload["execution_environment"] = ee_id
         if extra_vars:
             payload["extra_vars"] = extra_vars
-        return self._post("/api/v2/job_templates/", payload)
+        return self._post("/job_templates/", payload)
 
     def add_credential_to_template(
         self,
@@ -193,6 +290,6 @@ class AAPClient:
         credential_id: int,
     ) -> None:
         self._post(
-            f"/api/v2/job_templates/{template_id}/credentials/",
+            f"/job_templates/{template_id}/credentials/",
             {"id": credential_id},
         )

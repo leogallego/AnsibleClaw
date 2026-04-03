@@ -4,120 +4,402 @@
 {% block content %}
 <div class="ac-page-header">
     <h2>Ansible Automation Platform (AAP)</h2>
-    <p>Configuration status for AAP Controller integration</p>
+    <p>Configure and test your AAP Controller connection</p>
 </div>
 
-<div class="pf-v6-c-card" style="margin-bottom:1rem;">
+{# --- Connection Status Card --- #}
+<div class="pf-v6-c-card" style="margin-bottom:1rem;" id="aap-status-card">
     <div class="pf-v6-c-card__title">
         <h3 class="pf-v6-c-card__title-text">Connection Status</h3>
     </div>
-    <div class="pf-v6-c-card__body">
+    <div class="pf-v6-c-card__body" style="display:flex;align-items:center;gap:0.75rem;">
         {% if aap_connected %}
         <span class="pf-v6-c-label pf-m-green">
             <span class="pf-v6-c-label__content">
-                <i class="fas fa-check-circle pf-v6-c-label__icon"></i>
                 <span class="pf-v6-c-label__text">Connected</span>
             </span>
         </span>
-        <span style="margin-left:0.5rem;">AAP Controller is reachable and authenticated.</span>
+        <span>AAP Controller is reachable and authenticated.</span>
         {% elif aap_configured %}
         <span class="pf-v6-c-label pf-m-gold">
             <span class="pf-v6-c-label__content">
-                <i class="fas fa-exclamation-triangle pf-v6-c-label__icon"></i>
                 <span class="pf-v6-c-label__text">Configured</span>
             </span>
         </span>
-        <span style="margin-left:0.5rem;">Environment variables are set but connectivity has not been verified.</span>
+        <span>URL and token are set but connectivity has not been verified.</span>
+        <button class="pf-v6-c-button pf-m-link pf-m-small"
+                hx-get="/aap/ping" hx-target="#ping-result" hx-indicator="#ping-spinner">
+            Test now
+        </button>
+        <span id="ping-spinner" class="htmx-indicator">Testing...</span>
+        <span id="ping-result"></span>
         {% else %}
         <span class="pf-v6-c-label pf-m-red">
             <span class="pf-v6-c-label__content">
-                <i class="fas fa-times-circle pf-v6-c-label__icon"></i>
                 <span class="pf-v6-c-label__text">Not Configured</span>
             </span>
         </span>
-        <span style="margin-left:0.5rem;">Set the environment variables below to enable AAP mode.</span>
+        <span>Enter your AAP Controller details below to get started.</span>
         {% endif %}
     </div>
 </div>
 
+{# --- Settings Form Card --- #}
 <div class="pf-v6-c-card" style="margin-bottom:1rem;">
     <div class="pf-v6-c-card__title">
-        <h3 class="pf-v6-c-card__title-text">Environment Variables</h3>
+        <h3 class="pf-v6-c-card__title-text">Controller Settings</h3>
     </div>
     <div class="pf-v6-c-card__body">
-        <table class="pf-v6-c-table pf-m-compact" role="grid" aria-label="AAP environment variables">
-            <thead>
-                <tr role="row">
-                    <th role="columnheader" scope="col">Variable</th>
-                    <th role="columnheader" scope="col">Status</th>
-                    <th role="columnheader" scope="col">Value</th>
-                </tr>
-            </thead>
-            <tbody role="rowgroup">
-                <tr role="row">
-                    <td role="cell"><code>AAP_CONTROLLER_URL</code></td>
-                    <td role="cell">{% if aap_env.url %}<span class="ac-success">Set</span>{% else %}<span class="ac-error">Not set</span>{% endif %}</td>
-                    <td role="cell" class="ac-env-value">{{ aap_env.url or "—" }}</td>
-                </tr>
-                <tr role="row">
-                    <td role="cell"><code>AAP_CONTROLLER_TOKEN</code></td>
-                    <td role="cell">{% if aap_env.token %}<span class="ac-success">Set</span>{% else %}<span class="ac-error">Not set</span>{% endif %}</td>
-                    <td role="cell">{% if aap_env.token %}<span class="ac-env-masked">••••••{{ aap_env.token[-4:] }}</span>{% else %}—{% endif %}</td>
-                </tr>
-                <tr role="row">
-                    <td role="cell"><code>AAP_VERIFY_SSL</code></td>
-                    <td role="cell"><span class="ac-success">Set</span></td>
-                    <td role="cell" class="ac-env-value">{{ "true" if aap_env.verify_ssl else "false" }}</td>
-                </tr>
-                <tr role="row">
-                    <td role="cell"><code>AAP_DEFAULT_INVENTORY</code></td>
-                    <td role="cell">{% if aap_env.default_inventory %}<span class="ac-success">Set</span>{% else %}<span class="ac-muted">Optional</span>{% endif %}</td>
-                    <td role="cell" class="ac-env-value">{{ aap_env.default_inventory or "—" }}</td>
-                </tr>
-                <tr role="row">
-                    <td role="cell"><code>AAP_DEFAULT_CREDENTIAL</code></td>
-                    <td role="cell">{% if aap_env.default_credential %}<span class="ac-success">Set</span>{% else %}<span class="ac-muted">Optional</span>{% endif %}</td>
-                    <td role="cell" class="ac-env-value">{{ aap_env.default_credential or "—" }}</td>
-                </tr>
-                <tr role="row">
-                    <td role="cell"><code>AAP_DEFAULT_ORGANIZATION</code></td>
-                    <td role="cell"><span class="ac-success">Set</span></td>
-                    <td role="cell" class="ac-env-value">{{ aap_env.default_organization }}</td>
-                </tr>
-            </tbody>
-        </table>
+        <form id="aap-settings-form"
+              hx-post="/aap/settings"
+              hx-target="#aap-settings-result"
+              hx-swap="innerHTML"
+              hx-indicator="#aap-save-spinner">
+
+            {# Controller URL #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-url">
+                    <span class="pf-v6-c-form__label-text">Controller URL</span>
+                    <span class="pf-v6-c-form__label-required" aria-hidden="true">*</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <input type="url" id="aap-url" name="url"
+                           value="{{ aap_settings.url }}"
+                           placeholder="https://aap.example.com">
+                </span>
+                {% if aap_sources.url == "env" %}
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);">
+                    Currently set via <code>AAP_CONTROLLER_URL</code> env var (takes precedence)
+                </small>
+                {% endif %}
+            </div>
+
+            {# Token #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-token">
+                    <span class="pf-v6-c-form__label-text">Token</span>
+                    <span class="pf-v6-c-form__label-required" aria-hidden="true">*</span>
+                </label>
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <span class="pf-v6-c-form-control" style="flex:1;">
+                        <input type="password" id="aap-token" name="token"
+                               value="{{ aap_settings.token }}"
+                               placeholder="OAuth2 bearer token"
+                               autocomplete="off">
+                    </span>
+                    <button type="button" class="pf-v6-c-button pf-m-plain"
+                            onclick="var t=document.getElementById('aap-token'); t.type = t.type==='password' ? 'text' : 'password'; this.textContent = t.type==='password' ? 'Show' : 'Hide';"
+                            style="white-space:nowrap;">Show</button>
+                </div>
+                {% if aap_sources.token == "env" %}
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);">
+                    Currently set via <code>AAP_CONTROLLER_TOKEN</code> env var (takes precedence)
+                </small>
+                {% endif %}
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);display:block;">
+                    Generate a token in AAP under <strong>Users</strong> &rarr; your user &rarr; <strong>Tokens</strong> &rarr; <strong>Add</strong> (leave Application blank, set Scope to Write).
+                </small>
+            </div>
+
+            {# Verify SSL #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label">
+                    <span class="pf-v6-c-form__label-text">Verify SSL</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                    <input type="checkbox" name="verify_ssl" value="true"
+                           {{ "checked" if aap_settings.verify_ssl in ("true", "1", "yes") else "" }}>
+                    <span>Verify TLS certificates (disable for self-signed certs)</span>
+                </label>
+            </div>
+
+            <hr style="margin:1rem 0;border-color:var(--pf-t--global--border--color--default);">
+            <p style="margin:0 0 0.75rem;font-weight:600;font-size:0.875rem;color:var(--pf-t--global--text--color--subtle);">
+                Defaults (optional)
+            </p>
+
+            {# Default Project -- first, drives the rest #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.5rem;">
+                <label class="pf-v6-c-form__label" for="aap-default-project">
+                    <span class="pf-v6-c-form__label-text">Default Project</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <select id="aap-default-project" name="default_project">
+                        <option value="{{ aap_settings.default_project }}" selected>
+                            {{ aap_settings.default_project or "-- not set --" }}
+                        </option>
+                    </select>
+                </span>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+                <button type="button" class="pf-v6-c-button pf-m-link pf-m-small" id="btn-refresh-aap"
+                        onclick="refreshFromAAP()">
+                    &#x21bb; Refresh from AAP
+                </button>
+                <span id="aap-defaults-status" style="font-size:0.8125rem;"></span>
+            </div>
+
+            {# Git Repo URL (read-only, derived from selected project) #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;" id="git-repo-group">
+                <label class="pf-v6-c-form__label">
+                    <span class="pf-v6-c-form__label-text">Git Repo URL</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <input type="text" id="aap-git-repo-url" readonly
+                           value="" placeholder="Select a project above"
+                           style="background:var(--pf-t--global--background--color--secondary--default);cursor:default;">
+                </span>
+                <small class="pf-v6-c-helper-text__item" style="color:var(--pf-t--global--text--color--subtle);display:block;margin-top:0.25rem;">
+                    SCM URL from the selected AAP project. Playbooks are pushed here during deploy.
+                </small>
+            </div>
+
+            {# Default Organization #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-default-org">
+                    <span class="pf-v6-c-form__label-text">Default Organization</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <select id="aap-default-org" name="default_organization">
+                        <option value="{{ aap_settings.default_organization }}" selected>
+                            {{ aap_settings.default_organization or "-- not set --" }}
+                        </option>
+                    </select>
+                </span>
+            </div>
+
+            {# Default Inventory #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-default-inventory">
+                    <span class="pf-v6-c-form__label-text">Default Inventory</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <select id="aap-default-inventory" name="default_inventory">
+                        <option value="{{ aap_settings.default_inventory }}" selected>
+                            {{ aap_settings.default_inventory or "-- not set --" }}
+                        </option>
+                    </select>
+                </span>
+            </div>
+
+            {# Default Credential #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-default-credential">
+                    <span class="pf-v6-c-form__label-text">Default Credential</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <select id="aap-default-credential" name="default_credential">
+                        <option value="{{ aap_settings.default_credential }}" selected>
+                            {{ aap_settings.default_credential or "-- not set --" }}
+                        </option>
+                    </select>
+                </span>
+            </div>
+
+            {# Default EE #}
+            <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
+                <label class="pf-v6-c-form__label" for="aap-default-ee">
+                    <span class="pf-v6-c-form__label-text">Default Execution Environment</span>
+                </label>
+                <span class="pf-v6-c-form-control">
+                    <select id="aap-default-ee" name="default_ee">
+                        <option value="{{ aap_settings.default_ee }}" selected>
+                            {{ aap_settings.default_ee or "-- not set --" }}
+                        </option>
+                    </select>
+                </span>
+            </div>
+
+            {# Save button #}
+            <div style="display:flex;gap:0.75rem;align-items:center;margin-top:1rem;">
+                <button type="submit" class="pf-v6-c-button pf-m-primary">
+                    Save &amp; Test Connection
+                </button>
+                <span id="aap-save-spinner" class="htmx-indicator" aria-busy="true">Saving...</span>
+            </div>
+        </form>
+
+        <div id="aap-settings-result" style="margin-top:1rem;"></div>
+
+        <p style="margin-top:1rem;font-size:0.8125rem;color:var(--pf-t--global--text--color--subtle);">
+            Settings are saved to <code>.ansibleclaw.yml</code> in the project root.
+            Environment variables (<code>AAP_CONTROLLER_URL</code>, <code>AAP_CONTROLLER_TOKEN</code>, etc.)
+            take precedence when set.
+        </p>
     </div>
 </div>
 
-<div class="pf-v6-c-card" style="margin-bottom:1rem;">
-    <div class="pf-v6-c-card__title">
-        <h3 class="pf-v6-c-card__title-text">Setup Instructions</h3>
-    </div>
-    <div class="pf-v6-c-card__body">
-        <p>Set these environment variables before starting AnsibleClaw to enable AAP mode:</p>
-        <pre class="ac-code"><code>export AAP_CONTROLLER_URL="https://aap.example.com"
-export AAP_CONTROLLER_TOKEN="your-oauth2-token"
-export AAP_VERIFY_SSL="true"
-export AAP_DEFAULT_INVENTORY="Production"
-export AAP_DEFAULT_CREDENTIAL="Machine SSH Key"</code></pre>
-        <p style="margin-top:1rem;">Generate a token in the AAP/AWX web UI under <strong>Users</strong> &rarr; your user &rarr; <strong>Tokens</strong>.</p>
-        <p>Once configured, all generated skills will include a <strong>Production Execution (AAP)</strong> section
-        with API examples and an <code>aap_run.py</code> helper script.</p>
-    </div>
-</div>
-
+{# --- Quick Test Card (shown when connected) --- #}
 {% if aap_connected %}
 <div class="pf-v6-c-card">
     <div class="pf-v6-c-card__title">
         <h3 class="pf-v6-c-card__title-text">Quick Test</h3>
     </div>
     <div class="pf-v6-c-card__body">
-        <button class="pf-v6-c-button pf-m-primary" hx-get="/aap/ping" hx-target="#ping-result" hx-indicator="#ping-spinner">
+        <button class="pf-v6-c-button pf-m-secondary" hx-get="/aap/ping" hx-target="#ping-result-bottom" hx-indicator="#ping-spinner-bottom">
             Test Connection
         </button>
-        <span id="ping-spinner" class="htmx-indicator">Testing...</span>
-        <div id="ping-result" style="margin-top: 0.5rem;"></div>
+        <span id="ping-spinner-bottom" class="htmx-indicator">Testing...</span>
+        <div id="ping-result-bottom" style="margin-top:0.5rem;"></div>
     </div>
 </div>
 {% endif %}
+
+<script>
+/* ------------------------------------------------------------------ */
+/* Shared helpers                                                     */
+/* ------------------------------------------------------------------ */
+function populateSelect(selectId, items, autoSelectName) {
+    var sel = document.getElementById(selectId);
+    if (!sel) return;
+    var currentVal = sel.value;
+    sel.innerHTML = '';
+
+    var empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = '-- not set --';
+    sel.appendChild(empty);
+
+    var target = (autoSelectName || '').toLowerCase();
+    var matched = false;
+    for (var i = 0; i < items.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = items[i].name;
+        opt.textContent = items[i].name;
+        if (items[i].id !== undefined) opt.setAttribute('data-id', items[i].id);
+        if (items[i].name === currentVal || items[i].name.toLowerCase() === target) {
+            opt.selected = true;
+            matched = true;
+        }
+        sel.appendChild(opt);
+    }
+    if (!matched && currentVal) {
+        for (var j = 0; j < sel.options.length; j++) {
+            if (sel.options[j].value === currentVal) {
+                sel.options[j].selected = true;
+                break;
+            }
+        }
+    }
+}
+
+function clearDependentFields() {
+    ['aap-default-org', 'aap-default-inventory', 'aap-default-credential', 'aap-default-ee'].forEach(function(id) {
+        var sel = document.getElementById(id);
+        if (sel) { sel.innerHTML = ''; var o = document.createElement('option'); o.value = ''; o.textContent = '-- not set --'; sel.appendChild(o); }
+    });
+    var repo = document.getElementById('aap-git-repo-url');
+    if (repo) repo.value = '';
+}
+
+function saveForm(callback) {
+    var form = document.getElementById('aap-settings-form');
+    if (!form) return;
+    fetch('/aap/settings', { method: 'POST', body: new FormData(form) })
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+            var result = document.getElementById('aap-settings-result');
+            if (result) result.innerHTML = html;
+            if (callback) callback();
+        })
+        .catch(function() { if (callback) callback(); });
+}
+
+/* ------------------------------------------------------------------ */
+/* Phase 1: Refresh — save URL+Token, fetch projects only             */
+/* ------------------------------------------------------------------ */
+function refreshFromAAP() {
+    var status = document.getElementById('aap-defaults-status');
+    var btn = document.getElementById('btn-refresh-aap');
+    if (btn) btn.disabled = true;
+    status.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Saving connection settings\u2026</span>';
+
+    var form = document.getElementById('aap-settings-form');
+    if (!form) return;
+
+    fetch('/aap/settings', { method: 'POST', body: new FormData(form) })
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+            var result = document.getElementById('aap-settings-result');
+            if (result) result.innerHTML = html;
+
+            status.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Fetching projects from AAP\u2026</span>';
+            return fetch('/api/aap/projects-list');
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (btn) btn.disabled = false;
+            if (data.error) {
+                status.innerHTML = '<span class="ac-warning">\u26a0 ' + data.error + '</span>';
+                return;
+            }
+            populateSelect('aap-default-project', data.items || [], '');
+            clearDependentFields();
+            var count = (data.items || []).length;
+            status.innerHTML = '<span class="ac-success">\u2713 ' + count + ' project' + (count !== 1 ? 's' : '') + ' loaded. Select one to populate the remaining fields.</span>';
+        })
+        .catch(function() {
+            status.innerHTML = '<span class="ac-warning">\u26a0 Failed to reach server</span>';
+            if (btn) btn.disabled = false;
+        });
+}
+
+/* ------------------------------------------------------------------ */
+/* Phase 2: Project selected — fetch context and auto-populate        */
+/* ------------------------------------------------------------------ */
+function onProjectSelected() {
+    var projSel = document.getElementById('aap-default-project');
+    var status = document.getElementById('aap-defaults-status');
+    if (!projSel || !projSel.value) return;
+
+    var selected = projSel.options[projSel.selectedIndex];
+    var projectId = selected.getAttribute('data-id');
+    if (!projectId) return;
+
+    status.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Loading project details\u2026</span>';
+
+    fetch('/api/aap/project-context/' + projectId)
+        .then(function(r) { return r.json(); })
+        .then(function(ctx) {
+            if (ctx.error) {
+                status.innerHTML = '<span class="ac-warning">\u26a0 ' + ctx.error + '</span>';
+                return;
+            }
+
+            var repo = document.getElementById('aap-git-repo-url');
+            if (repo) repo.value = (ctx.project && ctx.project.scm_url) || '';
+
+            var failed = [];
+            var fields = [
+                { id: 'aap-default-org',        key: 'organizations',           autoName: ctx.organization_name, label: 'Organizations' },
+                { id: 'aap-default-inventory',   key: 'inventories',             autoName: '',                    label: 'Inventories' },
+                { id: 'aap-default-credential',  key: 'credentials',             autoName: '',                    label: 'Credentials' },
+                { id: 'aap-default-ee',          key: 'execution_environments',  autoName: ctx.ee_name || '',     label: 'EEs' },
+            ];
+            fields.forEach(function(f) {
+                var d = ctx[f.key] || {};
+                if (d.error) { failed.push(f.label); return; }
+                populateSelect(f.id, d.items || [], f.autoName);
+            });
+
+            var parts = ['<span class="ac-success">\u2713 Defaults populated</span>'];
+            if (failed.length) parts.push('<span class="ac-warning">\u26a0 ' + failed.join(', ') + ' unavailable</span>');
+            status.innerHTML = parts.join(' &nbsp; ');
+
+            saveForm(function() {
+                status.innerHTML += ' &nbsp; <span class="ac-success">\u2713 Saved</span>';
+                if (!failed.length) setTimeout(function(){ status.innerHTML = ''; }, 5000);
+            });
+        })
+        .catch(function() {
+            status.innerHTML = '<span class="ac-warning">\u26a0 Failed to load project context</span>';
+        });
+}
+
+(function() {
+    var projSel = document.getElementById('aap-default-project');
+    if (projSel) projSel.addEventListener('change', onProjectSelected);
+})();
+</script>
 {% endblock %}
