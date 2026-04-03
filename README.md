@@ -4,10 +4,11 @@ A skill generation framework that converts Ansible modules into portable AI agen
 
 ## Overview
 
-AnsibleClaw bridges Ansible's 3000+ modules to AI agents (Cursor, Claude Code, etc.) by generating full skill packages from `ansible-doc` documentation. Each package includes a SKILL.md, wrapper scripts, prerequisite checks, and a ready-to-use playbook. Generated skills only depend on `ansible-core` at runtime -- no custom package needed.
+AnsibleClaw bridges Ansible's 3000+ modules to AI agents (Cursor, Claude Code, etc.) by generating full skill packages from `ansible-doc` documentation. Each package includes a SKILL.md, wrapper scripts, prerequisite checks, and a ready-to-use playbook, with **dual-mode** guidance: local **`ansible` CLI** and optional **Ansible Automation Platform (AAP)** through `scripts/aap_run.py`. You do not need the `ansible-claw` package where Ansible runs; use `ansible-core` for CLI mode and Python 3 plus AAP API access for Controller-backed execution.
 
-**Build-time** -- Run `ansibleclaw` to scrape Ansible module docs and generate skill packages.
-**Runtime** -- Generated skills teach AI agents standard `ansible` CLI commands. Only `ansible-core` required.
+**Build-time** -- Run `ansibleclaw` to resolve Ansible module documentation (via `ansible-doc`, with Galaxy fallback when the collection is not installed locally) and emit full skill packages. If AAP is configured (environment variables or `.ansibleclaw.yml`), generation can embed Controller defaults (URL, inventory, credential, project, organization) into the skill; **bearer tokens are never baked in**.
+
+**Runtime** -- Generated skills teach agents **CLI mode** (standard `ansible` / playbook workflows; `ansible-core` on the control node) and **AAP mode** (launch ad-hoc commands and job templates via `scripts/aap_run.py` using `AAP_CONTROLLER_URL` and `AAP_CONTROLLER_TOKEN`). See [AAP Integration](#aap-integration-production-execution) below for variables and examples.
 
 ## Installation
 
@@ -50,10 +51,10 @@ ansibleclaw ui
 
 1. **Search** -- Find the right Ansible module with `ansibleclaw search` or the `ansible_search` skill
 2. **Generate** -- Convert a module into a full skill package with `ansibleclaw generate`
-3. **Use** -- The AI agent reads the SKILL.md and runs standard `ansible` CLI commands
+3. **Use** -- The AI agent reads the SKILL.md and runs standard `ansible` CLI commands or AAP flows via `scripts/aap_run.py` when configured
 4. **Distribute** -- Download as ZIP from the web dashboard or use `--zip` on the CLI
 
-Generated skills are portable: copy them into `~/.cursor/skills/`, `~/.claude/skills/`, or any agent's skill directory. ZIP packages can be uploaded directly to Claude.ai or shared via agentskill.sh. They work anywhere `ansible-core` is installed.
+Generated skills are portable: copy them into `~/.cursor/skills/`, `~/.claude/skills/`, or any agent's skill directory. ZIP packages can be uploaded directly to Claude.ai or shared via agentskill.sh. CLI mode needs `ansible-core` where Ansible runs; AAP mode needs Controller URL and token plus Python 3 for the helper script.
 
 ## AI agents: before Skills vs after Skills
 
