@@ -66,9 +66,9 @@ sequenceDiagram
   participant KW as Knowledge worker
   participant AI as AI agent
 
-  Note over BO: Fewer ad-hoc fixes; clearer audit for production
+  Note over BO: Fewer ad-hoc fixes, clearer audit for production
 
-  BO->>AA: Prioritize standard tasks (patching, baselines, …)
+  BO->>AA: Prioritize standard tasks (patching, baselines, ...)
   BO->>AAP: Governed execution for production
 
   AA->>AA: Build or update Ansible content
