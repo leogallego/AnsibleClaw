@@ -1,6 +1,6 @@
 # AnsibleClaw workflow diagrams
 
-**Stakeholder-friendly view:** [Business view: personas and outcomes](#business-view-personas-and-outcomes). **Technical detail:** diagrams further down mirror `src/ansibleclaw/`.
+**Stakeholder-friendly view:** [Business view: personas and outcomes](#business-view-personas-and-outcomes). **End-to-end user journey (AAP + skills):** [User workflow: production execution and two delivery routes](#user-workflow-production-execution-and-two-delivery-routes). **Technical detail:** diagrams further down mirror `src/ansibleclaw/`.
 
 ---
 
@@ -84,6 +84,70 @@ sequenceDiagram
 ```
 
 **In one sentence for executives:** AnsibleClaw lets the **Ansible admin** publish **trusted automation guidance** the **AI agent** follows, while the **AAP admin** keeps **production** under **platform control** — so **knowledge workers** move faster without bypassing **how the business said work should be done**.
+
+---
+
+## User workflow: production execution and two delivery routes
+
+This is the **operational journey** when your team treats **Ansible Automation Platform (AAP)** as the **production runtime**, uses AnsibleClaw to **materialize skills** from modules or collections, and then either **publishes Job Templates** from the UI or **hands skills to an AI agent** for prompt-driven runs on the Controller.
+
+### Steps and diagram
+
+1. **Configure AAP as production execution** — Set `AAP_CONTROLLER_URL`, `AAP_CONTROLLER_TOKEN`, and optional defaults (environment and/or `.ansibleclaw.yml`, test from the dashboard `/aap`). Generation can bake Controller defaults into skills (never the token).
+2. **Pick a module or collection** — Use search, the **Collections** page, or CLI; **install the collection** if it is missing (Collections UI, `ansible-galaxy`, or `ansibleclaw generate --auto-install`).
+3. **Generate skills** — Web **Generate**, `ansibleclaw generate`, batch **Generate Skills** on a collection, or an AI using the **`ansible_skills_factory`** built-in skill.
+4. **Two routes after skills exist:**
+   - **Human admin:** **Deploy to AAP** on a skill or collection in the UI → creates a **Job Template** in your configured Controller (project, inventory, credential, EE).
+   - **AI agent route:** **Download ZIP** or **Install** to Cursor / Claude / other agentic tools (`--install`, dashboard actions).
+5. **End user + agentic tool** — The user prompts in natural language; the **AI agent** reads the skill, **refines** `assets/playbook.yml` (and/or extra vars) for the request, and drives **autonomous execution on AAP** via `scripts/aap_run.py` (ad hoc, launch existing template, create template, etc.) within your RBAC and audit model.
+
+```mermaid
+flowchart TB
+  subgraph S1 ["1. Production runtime"]
+    AAPCFG["Configure AAP for AnsibleClaw\nURL + token + optional defaults\n(env, .ansibleclaw.yml, dashboard /aap)"]
+  end
+
+  subgraph S2 ["2. Select scope & dependencies"]
+    PICK["Choose module or collection\n(Search, Collections, or CLI)"]
+    HAS{"Collection installed\nlocally?"}
+    INSTALL["Install if missing:\nCollections UI, ansible-galaxy,\nor generate --auto-install"]
+    PICK --> HAS
+    HAS -->|No| INSTALL
+    HAS -->|Yes| GENIN
+    INSTALL --> GENIN
+  end
+
+  subgraph S3 ["3. Skills factory generates packages"]
+    GENIN["Generate skills\nWeb / ansibleclaw generate /\nansible_skills_factory skill"]
+    PKG["Skill packages:\nSKILL.md, scripts/aap_run.py,\nassets/playbook.yml, …"]
+    GENIN --> PKG
+  end
+
+  S1 --> S2
+  S2 --> S3
+
+  PKG --> ROUTE{"Who operationalizes\nproduction runs?"}
+
+  ROUTE -->|Human admin| DEPLOY["Web UI: Deploy to AAP\n(skill or collection)"]
+  DEPLOY --> JT["Job Template created\nin configured Controller"]
+
+  ROUTE -->|Agentic distribution| GETSKILL["ZIP download or install\ninto agentic tools\n(Cursor, Claude, …)"]
+  GETSKILL --> AGENT["AI Agent loads skill"]
+
+  subgraph S4 ["4. End user (agentic path)"]
+    USER["End user prompts\nnatural-language goal"]
+    TUNE["Agent refines playbook / vars\nto match the ask"]
+    RUN["Autonomous execution on AAP\nvia aap_run.py (adhoc, launch,\ncreate-jt, …)"]
+    USER --> TUNE
+    TUNE --> RUN
+  end
+
+  AGENT --> USER
+  RUN --> CTRL["AAP Controller\nRBAC, inventory, credentials,\nEE, audit trail"]
+  JT --> CTRL
+```
+
+**How to read the split:** the **admin path** favors **repeatable Job Templates** launched from AAP (or API) with a fixed playbook reference. The **agentic path** favors **conversation-led** changes to the playbook and execution **through the same Controller**, still governed by AAP roles and tokens the agent receives at runtime.
 
 ---
 

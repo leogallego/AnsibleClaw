@@ -23,6 +23,7 @@ This guide covers everything you need to install, configure, and use AnsibleClaw
 - [Generated Skill Package](#generated-skill-package)
 - [Inventory Setup](#inventory-setup)
 - [End-to-End Workflows](#end-to-end-workflows)
+  - [Visual user journey (AAP + skills factory)](#visual-user-journey-aap-skills-factory)
   - [CLI: Search, Generate, Use](#workflow-1-search-generate-use-cli)
   - [Web UI: Search, Generate, Install](#workflow-2-search-generate-install-web-ui)
   - [AI Agent Self-Expansion](#workflow-3-ai-agent-self-expansion)
@@ -517,6 +518,21 @@ ansible myhost.example.com, -m ansible.builtin.package -a "name=nginx state=pres
 ---
 
 ## End-to-End Workflows
+
+### Visual user journey (AAP + skills factory)
+
+For a **single picture** of how configuration, generation, **Deploy to AAP**, and **agentic** distribution fit together, see the Mermaid diagram in **[workflow.md](workflow.md#user-workflow-production-execution-and-two-delivery-routes)** (*User workflow: production execution and two delivery routes*).
+
+**Summary of that journey:**
+
+1. **Configure AAP as production runtime** -- Set `AAP_CONTROLLER_URL`, `AAP_CONTROLLER_TOKEN`, and optional defaults (environment variables, `.ansibleclaw.yml`, and test from the dashboard **AAP** page). Skill generation can embed Controller defaults; tokens are never written into packages.
+2. **Select a module or collection** -- Use **Search**, **Collections**, or the CLI. **Install the collection** if it is missing (Collections manager, `ansible-galaxy`, or `ansibleclaw generate --auto-install`).
+3. **Generate skills** -- Web **Generate**, `ansibleclaw generate` (including `--collection`), or an AI using the **`ansible_skills_factory`** built-in skill.
+4. **Choose how production work is triggered:**
+   - **Human admin** -- Use **Deploy to AAP** on a skill or collection detail page to create a **Job Template** in the configured Controller ([Workflow 8](#workflow-8-aap-deploy-from-web-dashboard), [Workflow 9](#workflow-9-aap-deploy-collection-from-web-dashboard)).
+   - **Agentic tools** -- **Download ZIP** or **Install** to Cursor / Claude (CLI `--install`, or dashboard actions). End users then **prompt** the assistant; the agent **refines** `assets/playbook.yml` (and/or extra vars) and runs work **on AAP** via `scripts/aap_run.py` within your RBAC ([Workflow 3](#workflow-3-ai-agent-self-expansion), [Workflow 6](#workflow-6-aap-ad-hoc-command), [Workflow 7](#workflow-7-aap-job-template-launch)).
+
+The sections below walk through each pattern in more detail.
 
 ### Workflow 1: Search, Generate, Use (CLI)
 

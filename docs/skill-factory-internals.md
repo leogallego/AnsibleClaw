@@ -26,6 +26,8 @@ ansible_package/
     └── playbook.yml      # Ready-to-use Ansible playbook
 ```
 
+For diagrams of how generated packages fit into AAP configuration, **Deploy to AAP**, and agent-driven runs, see [workflow.md](workflow.md) (especially *User workflow: production execution and two delivery routes*).
+
 ---
 
 ## Phase 1: Scrape ansible-doc

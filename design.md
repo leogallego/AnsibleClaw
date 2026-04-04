@@ -404,3 +404,8 @@ A local web dashboard launched via `ansibleclaw ui`. Built with FastAPI + Jinja2
 10. **FastAPI backend** -- `web/app.py` with all routes, reusing `core.parser` and `config`
 11. **HTML templates** -- base layout + skills/search/generate/inventory pages with HTMX interactions
 12. **`ansibleclaw ui` subcommand** -- wire up uvicorn in cli.py, graceful error if FastAPI not installed
+
+## Related documentation
+
+- [docs/workflow.md](docs/workflow.md) -- Mermaid diagrams (business personas, operational user journey with AAP and two delivery routes, technical pipelines)
+- [docs/user-guide.md](docs/user-guide.md) -- Installation, CLI, web dashboard, end-to-end workflows
