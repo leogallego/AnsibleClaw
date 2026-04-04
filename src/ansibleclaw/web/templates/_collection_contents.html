@@ -17,6 +17,12 @@
         </span>
         {% endif %}
     </p>
+    {% if source == "galaxy" %}
+    <p class="ac-warning" style="margin-top:0.35rem;font-size:0.875rem;max-width:48rem;">
+        <strong>Not installed locally.</strong>
+        Use <strong>Install</strong> above before generating skills.
+    </p>
+    {% endif %}
     <table class="pf-v6-c-table pf-m-grid-md pf-m-compact" role="grid" aria-label="Modules in {{ collection }}">
         <thead>
             <tr role="row">
@@ -31,9 +37,16 @@
                 <td role="cell" data-label="Module"><code>{{ name }}</code></td>
                 <td role="cell" data-label="Description">{{ desc or "" }}</td>
                 <td role="cell" data-label="Actions">
+                    {% if source == "galaxy" %}
+                    <button type="button" class="pf-v6-c-button pf-m-secondary pf-m-small" disabled
+                            title="Install this collection first; skill generation requires the module on this system.">
+                        Generate Skill
+                    </button>
+                    {% else %}
                     <a href="/generate?module={{ name }}" class="pf-v6-c-button pf-m-link pf-m-small">
                         Generate Skill
                     </a>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
