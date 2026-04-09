@@ -473,7 +473,7 @@ The final output directory is determined by CLI flags:
 ```python
 # cli.py
 def _resolve_output_dir(args, skill_name):
-    if args.install:           # --install cursor  → ~/.cursor/skills/ansible_package/
+    if args.install:           # --install cursor|claude|gemini  → agent skills dir
         return INSTALL_PATHS[platform] / skill_name
     elif args.output:          # --output /tmp/     → /tmp/ansible_package/
         return Path(args.output) / skill_name
@@ -486,7 +486,9 @@ def _resolve_output_dir(args, skill_name):
 | `ansibleclaw generate "ansible.builtin.package"` | `./skills/ansible_package/` |
 | `ansibleclaw generate "ansible.builtin.package" --install cursor` | `~/.cursor/skills/ansible_package/` |
 | `ansibleclaw generate "ansible.builtin.package" --install claude` | `~/.claude/skills/ansible_package/` |
+| `ansibleclaw generate "ansible.builtin.package" --install gemini` | `~/.gemini/skills/ansible_package/` |
 | `ansibleclaw generate "ansible.builtin.package" --output /tmp/` | `/tmp/ansible_package/` |
+| `ansibleclaw uninstall ansible_package --platform gemini` | Removes `~/.gemini/skills/ansible_package/` only |
 
 ---
 

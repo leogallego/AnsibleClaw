@@ -31,49 +31,78 @@ SKILL.md) for ALL execution. Do NOT run local `ansible` CLI commands or
 
 The **Default AAP inventory** value is a **Controller inventory** (name or numeric ID) defined and maintained in Ansible Automation Platform, not a path to a local file such as `inventory/hosts.yml`.
 
-**IMPORTANT**: The environment variable `AAP_CONTROLLER_TOKEN` MUST be set
-before running any command. All other AAP settings are pre-configured.
+**IMPORTANT**: `AAP_CONTROLLER_TOKEN` is required only for Controller API calls
+(`create-jt`, `launch`, `status`, `adhoc`). You can still edit `assets/playbook.yml`
+and push changes to the Project Git repo without the token.
 
 ### Inventory (production)
 
 Hosts and groups for AAP runs come from **inventories managed in AAP** (UI or API). Do not rely on the repo’s static `inventory/` files for production execution. The `--inventory` flag on `aap_run.py` selects **another AAP inventory** (name or ID), not a path on disk.
 
+### Git and the AAP Project (production)
+
+- The Job Template **playbook path** is **relative to the AAP Project’s Git repository** (the SCM URL on the Project in Controller), **not** to a path under `~/.cursor/skills`, `~/.gemini/skills`, or other local agent install directories.
+- When you change `assets/playbook.yml` (including from the bundled example), **commit and push** to **that same Git remote** so the next **project sync** in AAP picks up the file. AnsibleClaw **Deploy to AAP** in the web UI is another way to push skill trees into that repo.
+{% if aap_scm_url %}
+- **SCM URL hint** (from AnsibleClaw `AAP_DEFAULT_SCM_URL` / `.ansibleclaw.yml`): `{{ aap_scm_url }}`
+{% endif %}
+- If you only have this skill under an agent skills folder, copy or merge into a checkout of the Project repository before pushing; **Git credentials and branch policy are your responsibility**.
+
+**Recommended Git flow for assistants (do this first):**
+Use the helper script:
+
+```bash
+bash scripts/publish_playbook.sh
+```
+
+{% if aap_scm_url %}
+This skill has an SCM hint baked in (`{{ aap_scm_url }}`), so the script can clone automatically if needed.
+{% else %}
+If the script asks for a repo URL, provide `--repo-url <AAP Project SCM URL>`.
+{% endif %}
+
 ### Quick Start (FOLLOW THESE STEPS EXACTLY)
 
 **Preferred path: Job Templates** (repeatable, RBAC-friendly, typical production flow).
 
-1. **Check prerequisites**:
+1. **Prepare and push playbook changes first**:
+   - Update `assets/playbook.yml` for the user request.
+   - Run `bash scripts/publish_playbook.sh` to copy/update the skill under `skills/ansible_{{ skill_name }}/` in the AAP Project repo and push.
+
+2. **Optional prerequisite check** (useful before API calls):
    ```bash
    bash scripts/check.sh
    ```
 
-2. **Prepare `assets/playbook.yml`** — edit tasks to use `{{ module_name }}` with the parameters you need. The Job Template references this path **inside your AAP Project’s Git repo**; changes must be **pushed** and the project **synced** in AAP before launch (or use AnsibleClaw **Deploy to AAP** in the web UI).
+3. **Create a Job Template** (skip when **Deploy to AAP** already created it):
+   - Use the same project-relative playbook path that you pushed in step 1.
+   - AnsibleClaw **Deploy to AAP** can also push, sync, and create the Job Template.
 
-3. **Create a Job Template** (skip if it already exists):
+4. **Create a Job Template** via helper script:
    ```bash
    python3 scripts/aap_run.py create-jt --name "{{ skill_name | replace('_', '-') }}"
    ```
    Use your site’s Job Template naming convention if a prefix is configured (e.g. `AnsibleClaw: …`).
 
-4. **Launch the Job Template**:
-   ```bash
-   python3 scripts/aap_run.py launch "{{ skill_name | replace('_', '-') }}"
-   ```
-   Add `--limit`, `--inventory`, or `--extra-vars` as needed (see **How to Execute (AAP)** below).
+**Agent / automation stop point:** For production, treat **Job Template creation** as the usual handoff. **Do not** launch jobs from the assistant unless an operator has explicitly approved it. **AAP administrators** run or schedule the Job Template in the Controller UI (security and audit).
 
-5. **Check job status** (optional):
-   ```bash
-   python3 scripts/aap_run.py status <job-id>
-   ```
-
-#### Optional: ad-hoc (one-off, no playbook)
-
-Use only for quick probes or debugging — **not** the default production path:
+#### Operators: launch and job status (after approval)
 
 ```bash
-python3 scripts/aap_run.py adhoc "{{ example_args }}" --check
-python3 scripts/aap_run.py adhoc "{{ example_args }}"
+python3 scripts/aap_run.py launch "{{ skill_name | replace('_', '-') }}"
+# With extra variables, limits, inventory overrides — see **How to Execute (AAP)** below
+python3 scripts/aap_run.py status <job-id>
 ```
+
+#### Optional: ad-hoc (diagnostics only; avoid for normal changes)
+
+Use ad-hoc only when an operator explicitly asks for a quick probe.
+For normal changes, use the Job Template path above.
+{% if module_name == "ansible.builtin.package" %}
+
+For `ansible.builtin.package`, prefer playbook + Job Template flow.
+Some AAP environments reject ad-hoc requests for this meta-module.
+{% endif %}
 {% else %}
 
 **CLI mode is active.** Use local `ansible` commands to execute this module.
@@ -139,7 +168,8 @@ AAP 2.5+ Gateway (`/api/controller/v2`).
 
 **Do not use `scripts/run.sh` in AAP mode** — it is for local CLI execution only.
 
-**Prefer Job Templates** for normal work. **Ad-hoc** is optional (one-off runs without a playbook).
+**Prefer Job Templates** for normal work. Treat ad-hoc as diagnostics-only.
+If ad-hoc fails due to Controller module restrictions, use Job Templates.
 
 All launches use **AAP-managed inventories**; Job Templates are created with a Controller inventory attached. Use baked defaults or `--inventory` to refer to an inventory object in AAP, not a local file.
 
@@ -153,7 +183,7 @@ Job Templates provide repeatable, RBAC-controlled execution in AAP.
 python3 scripts/aap_run.py create-jt --name "{{ skill_name | replace('_', '-') }}"
 ```
 
-**Launch a Job Template**:
+**Launch** (typically **AAP administrators** or approved operators after the Job Template exists):
 
 ```bash
 python3 scripts/aap_run.py launch "{{ skill_name | replace('_', '-') }}"
@@ -171,15 +201,15 @@ python3 scripts/aap_run.py launch "{{ skill_name | replace('_', '-') }}" --limit
 python3 scripts/aap_run.py status <job-id>
 ```
 
-### Optional: ad-hoc commands
+### Optional: ad-hoc commands (diagnostics only)
 
-One-off module runs without `assets/playbook.yml` (debugging or quick checks):
+Use only for operator-directed probes; do not use as the default execution path.
+If ad-hoc is rejected by AAP policy or module allow-lists, continue with Job Templates.
+{% if module_name == "ansible.builtin.package" %}
 
-```bash
-python3 scripts/aap_run.py adhoc "{{ example_args }}" --check
-python3 scripts/aap_run.py adhoc "{{ example_args }}"
-python3 scripts/aap_run.py adhoc "{{ example_args }}" --limit "web1.example.com"
-```
+For `ansible.builtin.package`, many Controllers reject ad-hoc usage of `package`.
+Prefer playbook + Job Template for package install/remove workflows.
+{% endif %}
 {% else %}
 ## How to Execute (CLI)
 
@@ -239,6 +269,6 @@ ANSIBLE_STDOUT_CALLBACK=json ansible <hosts> -m {{ module_name }} -a "<args>" -b
 
 ## Safety
 
-- **ALWAYS dry-run first**: In AAP mode, use optional **ad-hoc** `--check`, run the Job Template in **check mode** from the Controller UI when available, or validate in a non-production inventory first; in CLI mode use `--check --diff` before applying changes
+- **ALWAYS dry-run first**: In AAP mode, run the Job Template in **check mode** from the Controller UI when available (or validate in a non-production inventory first). Use ad-hoc `--check` only for diagnostics. In CLI mode use `--check --diff` before applying changes
 - **Become/sudo**: Most system-level modules require elevated privileges. In AAP mode, this is configured in the credential.
 - **Idempotency**: This module is idempotent -- running it multiple times with the same arguments produces the same result

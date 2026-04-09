@@ -19,9 +19,13 @@ SKILLS_DIR = Path(os.environ.get(
     Path.cwd() / "skills",
 ))
 
+# Agent skill install targets (filesystem copy only). Gemini CLI also discovers
+# ~/.agents/skills as an alias; we use ~/.gemini/skills for consistency with
+# Cursor/Claude layout. See https://www.geminicli.com/docs/cli/skills/
 INSTALL_PATHS: dict[str, Path] = {
     "cursor": Path.home() / ".cursor" / "skills",
     "claude": Path.home() / ".claude" / "skills",
+    "gemini": Path.home() / ".gemini" / "skills",
 }
 
 # Collection resolution settings

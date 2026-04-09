@@ -21,6 +21,8 @@ def test_skills_page(web_client):
     assert resp.status_code == 200
     assert "ansible_manager" in resp.text
     assert "Skills Library" in resp.text
+    assert "Gemini CLI" in resp.text
+    assert "Uninstall" in resp.text
 
 
 def test_skill_detail_page(web_client):
@@ -49,6 +51,39 @@ def test_cannot_delete_builtin_skill(web_client):
     resp = web_client.delete("/skills/ansible_manager")
     assert resp.status_code == 400
     assert "built-in" in resp.text.lower()
+
+
+def test_uninstall_skill_from_platform(web_client, tmp_path, monkeypatch):
+    import ansibleclaw.web.app as webapp
+
+    plat = tmp_path / "plat"
+    plat.mkdir()
+    merged = dict(webapp.INSTALL_PATHS)
+    merged["fixtureplat"] = plat
+    monkeypatch.setattr(webapp, "INSTALL_PATHS", merged)
+
+    ins = web_client.post(
+        "/skills/ansible_manager/install",
+        data={"platform": "fixtureplat"},
+    )
+    assert ins.status_code == 200
+    assert (plat / "ansible_manager" / "SKILL.md").exists()
+
+    rem = web_client.post(
+        "/skills/ansible_manager/uninstall",
+        data={"platform": "fixtureplat"},
+    )
+    assert rem.status_code == 200
+    assert "\u2713" in rem.text or "Removed" in rem.text
+    assert not (plat / "ansible_manager").exists()
+
+
+def test_uninstall_unknown_platform(web_client):
+    resp = web_client.post(
+        "/skills/ansible_manager/uninstall",
+        data={"platform": "notaplatform"},
+    )
+    assert resp.status_code == 400
 
 
 def test_root_redirects_to_skills(web_client):

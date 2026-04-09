@@ -140,8 +140,8 @@ class TestCmdGenerate:
         content = skill_file.read_text()
         assert "name: ansible-package" in content
         assert "ansible.builtin.package" in content
-        assert "name=ntpdate" in content
-        assert "state=present" in content
+        assert "## Examples from Ansible Documentation" in content
+        assert "Optional: ad-hoc" in content
         assert "## Parameters" in content
         assert "## Execution Mode" in content
         assert "## Safety" in content
@@ -163,13 +163,16 @@ class TestCmdGenerate:
 
         skill_dir = tmp_path / "ansible_package"
         aap_script = skill_dir / "scripts" / "aap_run.py"
+        publish_script = skill_dir / "scripts" / "publish_playbook.sh"
         assert aap_script.exists()
+        assert publish_script.exists()
 
         content = aap_script.read_text()
         assert 'MODULE = "ansible.builtin.package"' in content
         assert "ad_hoc_commands" in content
         assert "job_templates" in content
         assert aap_script.stat().st_mode & 0o111, "aap_run.py should be executable"
+        assert publish_script.stat().st_mode & 0o111, "publish_playbook.sh should be executable"
 
     def test_skill_md_has_aap_section(self, tmp_path, sample_module_doc):
         """Generated SKILL.md includes the AAP production execution section."""
@@ -191,6 +194,7 @@ class TestCmdGenerate:
         assert "## Execution Mode" in content
         assert ("## How to Execute (CLI)" in content or "## How to Execute (AAP)" in content)
         assert "aap_run.py" in content
+        assert "publish_playbook.sh" in content
 
     def test_builtin_no_collection_requirement(self, tmp_path, sample_module_doc):
         """Builtin modules should not have a Collection Requirement section."""
@@ -228,3 +232,59 @@ class TestCmdGenerate:
 
         skill_file = tmp_path / "ansible_package" / "SKILL.md"
         assert skill_file.exists()
+
+    def test_install_gemini_platform(self, tmp_path, sample_module_doc):
+        """Generate with --install gemini uses INSTALL_PATHS['gemini'] when patched."""
+        from ansibleclaw.cli import cmd_generate
+        import argparse
+
+        with self._mock_resolve(sample_module_doc), \
+             patch("ansibleclaw.cli.INSTALL_PATHS", {"gemini": tmp_path}):
+            args = argparse.Namespace(
+                module="ansible.builtin.package",
+                install="gemini",
+                output=None,
+                auto_install=False,
+                collection_version=None,
+            )
+            cmd_generate(args)
+
+        assert (tmp_path / "ansible_package" / "SKILL.md").exists()
+
+
+class TestUninstallCommand:
+    def test_uninstall_removes_platform_copy(self, tmp_path, capsys):
+        from ansibleclaw.cli import cmd_uninstall
+        import argparse
+
+        plat = tmp_path / "plat"
+        plat.mkdir()
+        skill = plat / "ansible_package"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text("---\n")
+        with patch("ansibleclaw.cli.INSTALL_PATHS", {"testplatform": plat}):
+            args = argparse.Namespace(skill_name="ansible_package", platform="testplatform")
+            cmd_uninstall(args)
+        assert not skill.exists()
+        assert "Removed" in capsys.readouterr().out
+
+    def test_uninstall_idempotent(self, tmp_path, capsys):
+        from ansibleclaw.cli import cmd_uninstall
+        import argparse
+
+        plat = tmp_path / "plat"
+        plat.mkdir()
+        with patch("ansibleclaw.cli.INSTALL_PATHS", {"testplatform": plat}):
+            args = argparse.Namespace(skill_name="nosuch", platform="testplatform")
+            cmd_uninstall(args)
+        assert "Nothing to remove" in capsys.readouterr().out
+
+
+class TestInstallPathsConfig:
+    def test_gemini_entry_exists(self):
+        from ansibleclaw.config import INSTALL_PATHS
+
+        assert "gemini" in INSTALL_PATHS
+        p = INSTALL_PATHS["gemini"]
+        assert p.name == "skills"
+        assert p.parent.name == ".gemini"

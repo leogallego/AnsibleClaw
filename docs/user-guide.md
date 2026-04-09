@@ -107,6 +107,7 @@ A skill package is a directory containing a SKILL.md (with YAML frontmatter) plu
 - **SKILL.md** -- Module description, parameters table, and dual-mode execution instructions (CLI + AAP)
 - **scripts/run.sh** -- Local CLI wrapper with dry-run defaults
 - **scripts/check.sh** -- Prerequisite validator for both CLI and AAP connectivity
+- **scripts/publish_playbook.sh** -- Copies skill into AAP Project repo path and commits/pushes updates
 - **scripts/aap_run.py** -- AAP Controller API helper (Python stdlib only, no pip install needed)
 - **assets/playbook.yml** -- Ready-to-use Ansible playbook
 - **assets/requirements.yml** -- Galaxy collection dependency (for non-builtin modules)
@@ -120,6 +121,7 @@ By default, generated skills are written to the `skills/` directory inside the p
 | Project (default) | `skills/<skill_name>/` |
 | Cursor | `~/.cursor/skills/<skill_name>/` |
 | Claude Code | `~/.claude/skills/<skill_name>/` |
+| Gemini CLI | `~/.gemini/skills/<skill_name>/` |
 | Custom | Any path you specify with `--output` |
 
 Skills are portable: copy the directory anywhere, download as a ZIP from the web dashboard, or upload to Claude.ai. They work wherever `ansible-core` is installed.
@@ -162,7 +164,7 @@ Suppose you ask: *"I want to install the `abc` package on my remote hosts."*
 |-----------|----------------|-------------------------------------|
 | **Grounding** | Generic best practices | Module docs + your skill's file layout |
 | **First turn** | Clarifying questions / wizards | Often direct steps from `SKILL.md` |
-| **Paths** | Invented or placeholder | `scripts/check.sh`, `assets/playbook.yml`, `scripts/aap_run.py` |
+| **Paths** | Invented or placeholder | `scripts/check.sh`, `scripts/publish_playbook.sh`, `assets/playbook.yml`, `scripts/aap_run.py` |
 | **AAP** | Optional, easy to skip | Documented in skill; helper script included |
 | **Team reuse** | Everyone re-prompts | Install or ZIP the same skill directory |
 
@@ -172,7 +174,7 @@ Built-in skills shipped with `ansible-claw` (`ansible_search`, `ansible_manager`
 
 ## CLI Reference
 
-AnsibleClaw provides three subcommands: `generate`, `search`, and `ui`.
+AnsibleClaw provides four subcommands: `generate`, `search`, `uninstall`, and `ui`.
 
 ### ansibleclaw generate
 
@@ -188,7 +190,7 @@ ansibleclaw generate --collection <FQCN> [options]
 | Argument | Description |
 |----------|-------------|
 | `module` | Fully-qualified module name (e.g., `ansible.builtin.apt`) |
-| `--install PLATFORM` | Install directly to an agent platform (`cursor` or `claude`) |
+| `--install PLATFORM` | Install directly to an agent platform (`cursor`, `claude`, or `gemini`) |
 | `--output DIR` | Write to a custom directory instead of the project `skills/` |
 | `--zip` | Also create a `.zip` archive for distribution |
 | `--auto-install` | Auto-install the collection via `ansible-galaxy` if not present locally |
@@ -213,6 +215,10 @@ ansibleclaw generate "community.general.redis" --install cursor
 # Install directly into Claude Code
 ansibleclaw generate "community.docker.docker_container" --install claude
 # Output: ~/.claude/skills/ansible_docker_docker_container/
+
+# Install into Gemini CLI
+ansibleclaw generate "ansible.builtin.apt" --install gemini
+# Output: ~/.gemini/skills/ansible_apt/
 
 # Custom path
 ansibleclaw generate "ansible.builtin.user" --output /tmp/my-skills/
@@ -273,6 +279,25 @@ ansibleclaw search --detail "community.general.redis"
 
 **Tip:** Ansible has 3000+ modules. Always use `--namespace` to narrow results when you know the domain (e.g., `community.docker` for Docker, `amazon.aws` for AWS).
 
+### ansibleclaw uninstall
+
+Remove a skill directory from an **agent platform** install path. This does **not** delete skills from the project `skills/` directory (use the web UI **Delete** action for that).
+
+```
+ansibleclaw uninstall <skill_dir_name> --platform {cursor|claude|gemini}
+```
+
+| Argument | Description |
+|----------|-------------|
+| `skill_dir_name` | Directory name (e.g. `ansible_package`, `ansible_apt`) |
+| `--platform` | Required: `cursor`, `claude`, or `gemini` |
+
+If the path is already missing, the command exits successfully (idempotent).
+
+```bash
+ansibleclaw uninstall ansible_apt --platform gemini
+```
+
 ### ansibleclaw ui
 
 Launch the web management dashboard.
@@ -313,7 +338,8 @@ This is the home page. It shows all skills (built-in + generated) in a table wit
 - **Type** -- `built-in` (ships with AnsibleClaw) or `generated` (created by the factory)
 - **Actions:**
   - **Download** -- Download the skill as a ZIP archive
-  - **Install** -- Copy a skill to Cursor or Claude Code's skill directory with one click
+  - **Install** -- Copy a skill to Cursor, Claude Code, or Gemini CLI’s skill directory with one click
+  - **Uninstall** -- Remove the skill copy from Cursor, Claude, or Gemini CLI (project `skills/` unchanged)
   - **Delete** -- Remove a generated skill (built-in skills cannot be deleted)
 
 Clicking a skill name opens the detail view showing the SKILL.md content. From the detail page, you can also **Deploy to AAP** (see [AAP Integration](#deploying-skills-to-aap-via-the-web-dashboard)).
@@ -344,6 +370,7 @@ Generate new skills through the browser:
    - **Project (skills/)** -- write to the project's skills directory
    - **Cursor** -- install directly to `~/.cursor/skills/`
    - **Claude** -- install directly to `~/.claude/skills/`
+   - **Gemini** -- install directly to `~/.gemini/skills/`
    - **Custom path** -- specify any directory
 3. Click **Preview** to see what the SKILL.md will look like before generating
 4. Click **Generate** to create the full skill package
@@ -456,6 +483,7 @@ ansible_apt/
 | `SKILL.md` | Agent reads this for parameters, CLI usage, and AAP API usage | None |
 | `scripts/run.sh` | Wraps `ansible` CLI with safe dry-run defaults | `ansible-core` |
 | `scripts/check.sh` | Validates CLI tools and AAP connectivity | `ansible-core`, `curl` |
+| `scripts/publish_playbook.sh` | Syncs skill files into AAP Project SCM checkout and pushes | `git` |
 | `scripts/aap_run.py` | Launches ad-hoc commands and job templates via AAP REST API | Python 3 (stdlib) |
 | `assets/playbook.yml` | Ansible playbook with example tasks | `ansible-core` |
 | `assets/requirements.yml` | Galaxy dependency for the collection | `ansible-galaxy` |
@@ -529,8 +557,8 @@ For a **single picture** of how configuration, generation, **Deploy to AAP**, an
 2. **Select a module or collection** -- Use **Search**, **Collections**, or the CLI. **Install the collection** if it is missing (Collections manager, `ansible-galaxy`, or `ansibleclaw generate --auto-install`).
 3. **Generate skills** -- Web **Generate**, `ansibleclaw generate` (including `--collection`), or an AI using the **`ansible_skills_factory`** built-in skill.
 4. **Choose how production work is triggered:**
-   - **Human admin** -- Use **Deploy to AAP** on a skill or collection detail page to create a **Job Template** in the configured Controller ([Workflow 8](#workflow-8-aap-deploy-from-web-dashboard), [Workflow 9](#workflow-9-aap-deploy-collection-from-web-dashboard)).
-   - **Agentic tools** -- **Download ZIP** or **Install** to Cursor / Claude (CLI `--install`, or dashboard actions). End users then **prompt** the assistant; the agent **refines** `assets/playbook.yml` (and/or extra vars) and runs work **on AAP** via `scripts/aap_run.py` within your RBAC ([Workflow 3](#workflow-3-ai-agent-self-expansion), [Workflow 6](#workflow-6-aap-ad-hoc-command), [Workflow 7](#workflow-7-aap-job-template-launch)).
+   - **Human admin** -- Use **Deploy to AAP** on a skill or collection detail page: push to the Project’s Git SCM, sync, and create a **Job Template**. AnsibleClaw does **not** launch jobs; the playbook path is project-relative and is **not** re-checked against the Controller after sync.
+   - **Agentic tools** -- **Download ZIP** or **Install** to Cursor / Claude / **Gemini CLI** (CLI `--install`, or dashboard). End users **prompt** the assistant; the agent **refines** `assets/playbook.yml` and should **git push** changes to the **same remote** as the AAP Project. **Job Template creation** is the usual handoff; **AAP administrators** run jobs from the Controller unless policy allows `aap_run.py launch` ([Workflow 3](#workflow-3-ai-agent-self-expansion), [Workflow 6](#workflow-6-aap-ad-hoc-command), [Workflow 7](#workflow-7-aap-job-template-launch)).
 
 The sections below walk through each pattern in more detail.
 
@@ -543,7 +571,7 @@ ansibleclaw search "docker" --namespace community.docker
 # 2. Generate a skill for it
 ansibleclaw generate "community.docker.docker_container"
 # Skill generated: skills/ansible_docker_docker_container/
-#   SKILL.md, scripts/run.sh, scripts/check.sh, scripts/aap_run.py, assets/playbook.yml
+#   SKILL.md, scripts/run.sh, scripts/check.sh, scripts/publish_playbook.sh, scripts/aap_run.py, assets/playbook.yml
 
 # 3. Read the generated skill
 cat skills/ansible_docker_docker_container/SKILL.md
@@ -846,6 +874,9 @@ Skills can be installed directly to agent platforms:
 |----------|-------------|
 | `cursor` | `~/.cursor/skills/` |
 | `claude` | `~/.claude/skills/` |
+| `gemini` | `~/.gemini/skills/` |
+
+Use `ansibleclaw uninstall <name> --platform <platform>` to remove a copy from one of these directories.
 
 ---
 

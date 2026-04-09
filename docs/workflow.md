@@ -97,9 +97,9 @@ This is the **operational journey** when your team treats **Ansible Automation P
 2. **Pick a module or collection** — Use search, the **Collections** page, or CLI; **install the collection** if it is missing (Collections UI, `ansible-galaxy`, or `ansibleclaw generate --auto-install`).
 3. **Generate skills** — Web **Generate**, `ansibleclaw generate`, batch **Generate Skills** on a collection, or an AI using the **`ansible_skills_factory`** built-in skill.
 4. **Two routes after skills exist:**
-   - **Human admin:** **Deploy to AAP** on a skill or collection in the UI → creates a **Job Template** in your configured Controller (project, inventory, credential, EE).
-   - **AI agent route:** **Download ZIP** or **Install** to Cursor / Claude / other agentic tools (`--install`, dashboard actions).
-5. **End user + agentic tool** — The user prompts in natural language; the **AI agent** reads the skill, **refines** `assets/playbook.yml` (and/or extra vars) for the request, and drives **autonomous execution on AAP** via `scripts/aap_run.py` (ad hoc, launch existing template, create template, etc.) within your RBAC and audit model.
+   - **Human admin:** **Deploy to AAP** on a skill or collection in the UI → pushes to the Project’s Git SCM, syncs the project, creates a **Job Template** (AnsibleClaw does **not** launch jobs; playbook path is project-relative and not re-validated against the Controller list after sync).
+   - **AI agent route:** **Download ZIP** or **Install** to Cursor / Claude / **Gemini CLI** (`--install`, dashboard actions).
+5. **End user + agentic tool** — The user prompts in natural language; the **AI agent** reads the skill and **refines** `assets/playbook.yml` from the example. Those changes should be **committed and pushed** to the **same Git remote** configured on the AAP Project so Controller sync sees them (or the operator uses **Deploy to AAP**). **Job Template creation** is the usual **stop point** for automation and assistants; **AAP administrators** launch or schedule jobs from the Controller for security and audit. Operators may use `scripts/aap_run.py` where policy allows.
 
 ```mermaid
 flowchart TB
@@ -131,23 +131,26 @@ flowchart TB
   ROUTE -->|Human admin| DEPLOY["Web UI: Deploy to AAP\n(skill or collection)"]
   DEPLOY --> JT["Job Template created\nin configured Controller"]
 
-  ROUTE -->|Agentic distribution| GETSKILL["ZIP download or install\ninto agentic tools\n(Cursor, Claude, …)"]
+  ROUTE -->|Agentic distribution| GETSKILL["ZIP download or install\ninto agentic tools\n(Cursor, Claude, Gemini, …)"]
   GETSKILL --> AGENT["AI Agent loads skill"]
 
   subgraph S4 ["4. End user (agentic path)"]
     USER["End user prompts\nnatural-language goal"]
-    TUNE["Agent refines playbook / vars\nto match the ask"]
-    RUN["Autonomous execution on AAP\nvia aap_run.py (adhoc, launch,\ncreate-jt, …)"]
+    TUNE["Agent refines playbook.yml\nfrom example"]
+    GITPUSH["Commit and push to\nAAP Project Git SCM"]
+    JTSTEP["JT handoff:\nDeploy UI or create-jt\nno job launch"]
     USER --> TUNE
-    TUNE --> RUN
+    TUNE --> GITPUSH
+    GITPUSH --> JTSTEP
   end
 
   AGENT --> USER
-  RUN --> CTRL["AAP Controller\nRBAC, inventory, credentials,\nEE, audit trail"]
+  JTSTEP --> ADMINRUN["AAP admin launches JT\nController UI / policy"]
+  ADMINRUN --> CTRL["AAP Controller\nRBAC, inventory, credentials,\nEE, audit trail"]
   JT --> CTRL
 ```
 
-**How to read the split:** the **admin path** favors **repeatable Job Templates** launched from AAP (or API) with a fixed playbook reference. The **agentic path** favors **conversation-led** changes to the playbook and execution **through the same Controller**, still governed by AAP roles and tokens the agent receives at runtime.
+**How to read the split:** the **admin path** favors **repeatable Job Templates** with a fixed **project-relative** playbook path. The **agentic path** favors **conversation-led** edits to `assets/playbook.yml`, **git push** to the Project SCM, then **JT creation** as the handoff; **execution** stays with **AAP administrators** unless policy explicitly allows agents to call `aap_run.py launch`.
 
 ---
 

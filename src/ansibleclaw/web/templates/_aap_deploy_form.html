@@ -25,8 +25,9 @@
                 Deploying this {% if deploy_target == "collection" %}collection{% else %}skill{% endif %} will create
                 {% if deploy_target == "collection" %}one Job Template per module skill{% else %}a Job Template{% endif %}
                 in your AAP Controller{% if jt_name_prefix is defined and jt_name_prefix %}, each named with prefix <code>{{ jt_name_prefix }}</code>{% endif %}.
-                Playbooks are automatically pushed to the
-                selected Project's git repo and synced before the Job Template is created.
+                AnsibleClaw does <strong>not</strong> launch jobs; execution is for AAP administrators in the Controller.
+                Playbooks are pushed to the selected Project&rsquo;s Git repo and the project is synced before the Job Template is created.
+                The <strong>playbook path</strong> is project-relative (as you define for that project); AnsibleClaw does <strong>not</strong> re-check it against the Controller after sync.
                 {% else %}
                 Ansible Automation Platform (AAP) is the recommended way to run generated skills in production.
                 <span style="display:block;margin-top:0.5rem;">

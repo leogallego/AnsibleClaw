@@ -3,6 +3,7 @@
 Subcommands:
     generate  -- Generate a skill package for an Ansible module
     search    -- Search available Ansible modules by keyword
+    uninstall -- Remove a skill from an agent platform install directory
     ui        -- Launch the web management dashboard
 """
 
@@ -10,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
+import shutil
 import stat
 import sys
 from pathlib import Path
@@ -93,6 +94,8 @@ def _template_context(metadata: dict) -> dict:
     ctx["aap_project"] = AAPSettings.get("default_project")
     ctx["aap_ee"] = AAPSettings.get("default_ee")
     ctx["aap_organization"] = AAPSettings.get("default_organization")
+    scm = AAPSettings.get("default_scm_url").strip()
+    ctx["aap_scm_url"] = scm
 
     return ctx
 
@@ -117,7 +120,7 @@ def _write_skill_package(output_dir: Path, metadata: dict) -> None:
     scripts_dir = output_dir / "scripts"
     scripts_dir.mkdir(exist_ok=True)
 
-    for script_name in ("run.sh", "check.sh"):
+    for script_name in ("run.sh", "check.sh", "publish_playbook.sh"):
         template = env.get_template(f"{script_name}.j2")
         script_path = scripts_dir / script_name
         script_path.write_text(template.render(**ctx))
@@ -325,7 +328,10 @@ def cmd_generate(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     print(f"Skill generated: {output_dir}/")
-    print(f"  SKILL.md, scripts/run.sh, scripts/check.sh, scripts/aap_run.py, assets/playbook.yml")
+    print(
+        "  SKILL.md, scripts/run.sh, scripts/check.sh, scripts/publish_playbook.sh, "
+        "scripts/aap_run.py, assets/playbook.yml"
+    )
 
     if getattr(args, "zip", False):
         from ansibleclaw.core.packager import package_skill_zip
@@ -368,6 +374,28 @@ def cmd_search(args: argparse.Namespace) -> None:
     print(f"\n{len(results)} module(s) found.")
 
 
+def cmd_uninstall(args: argparse.Namespace) -> None:
+    """Remove a skill directory from an agent platform install path."""
+    platform = args.platform.lower()
+    if platform not in INSTALL_PATHS:
+        supported = ", ".join(sorted(INSTALL_PATHS))
+        print(f"Error: Unknown platform '{platform}'. Supported: {supported}", file=sys.stderr)
+        sys.exit(1)
+    skill_name = args.skill_name.strip()
+    if not skill_name:
+        print("Error: skill name is required (directory name, e.g. ansible_package)", file=sys.stderr)
+        sys.exit(1)
+    target = INSTALL_PATHS[platform] / skill_name
+    if not target.exists():
+        print(f"Nothing to remove: {target} does not exist.")
+        return
+    if not target.is_dir():
+        print(f"Error: {target} is not a directory", file=sys.stderr)
+        sys.exit(1)
+    shutil.rmtree(target)
+    print(f"Removed {target}")
+
+
 def cmd_ui(args: argparse.Namespace) -> None:
     """Launch the web management dashboard."""
     try:
@@ -401,7 +429,10 @@ def main() -> None:
         help="Generate a SKILL.md for an Ansible module.",
     )
     gen_parser.add_argument("module", nargs="?", default="", help="Fully-qualified module name (e.g., ansible.builtin.package)")
-    gen_parser.add_argument("--install", metavar="PLATFORM", help="Install to agent platform (cursor, claude)")
+    gen_parser.add_argument(
+        "--install", metavar="PLATFORM",
+        help="Install to agent platform (cursor, claude, gemini)",
+    )
     gen_parser.add_argument("--output", metavar="DIR", help="Custom output directory")
     gen_parser.add_argument("--zip", action="store_true", help="Also create a .zip archive for distribution")
     gen_parser.add_argument(
@@ -431,6 +462,21 @@ def main() -> None:
     search_parser.add_argument("--namespace", "-n", help="Filter by namespace (e.g., community.docker)")
     search_parser.add_argument("--detail", metavar="MODULE", help="Show full docs for a specific module")
     search_parser.set_defaults(func=cmd_search)
+
+    # --- uninstall ---
+    uninst_parser = subparsers.add_parser(
+        "uninstall",
+        help="Remove a skill from an agent platform directory (~/.cursor/skills, etc.).",
+    )
+    uninst_parser.add_argument(
+        "skill_name",
+        help="Skill directory name (e.g. ansible_package)",
+    )
+    uninst_parser.add_argument(
+        "--platform", metavar="PLATFORM", required=True,
+        help=f"Agent platform: {', '.join(sorted(INSTALL_PATHS))}",
+    )
+    uninst_parser.set_defaults(func=cmd_uninstall)
 
     # --- ui ---
     ui_parser = subparsers.add_parser(

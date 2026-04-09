@@ -9,7 +9,7 @@ A **skill generation framework** for AI agents, with a clean separation:
 
 Three design principles:
 
-- **Portable skills** -- Copy a generated SKILL.md into `~/.cursor/skills/`, `~/.claude/skills/`, or any agent's skill directory. It works with just `ansible-core` installed. No custom runtime dependency.
+- **Portable skills** -- Copy a generated SKILL.md into `~/.cursor/skills/`, `~/.claude/skills/`, `~/.gemini/skills/`, or any agent's skill directory. It works with just `ansible-core` installed. No custom runtime dependency.
 - **No pre-conversion** -- AI agents already have native file/CLI capabilities. The general-purpose manager skill teaches `ansible` ad-hoc commands for any module. The factory generates specialized skills on-demand.
 - **Standard tooling** -- Skills reference `ansible`, `ansible-doc`, and `ansible-playbook` -- commands every Ansible user knows. No proprietary CLI wrapping standard tools.
 
@@ -114,6 +114,7 @@ flowchart LR
     Gen -->|"default"| SkillsDir["skills/ansible_redis/SKILL.md"]
     Gen -->|"--install cursor"| CursorDir["~/.cursor/skills/ansible_redis/SKILL.md"]
     Gen -->|"--install claude"| ClaudeDir["~/.claude/skills/ansible_redis/SKILL.md"]
+    Gen -->|"--install gemini"| GeminiDir["~/.gemini/skills/ansible_redis/SKILL.md"]
     Gen -->|"--output /path/"| CustomDir["/path/ansible_redis/SKILL.md"]
 ```
 
@@ -196,7 +197,7 @@ Core dependencies are minimal: `ansible-core` (for `ansible-doc`), Jinja2 (templ
 
 ### 2. `src/ansibleclaw/cli.py` -- CLI Entrypoint
 
-Three subcommands:
+Four subcommands:
 
 - **`ansibleclaw generate`** (primary) -- Generate a specialized skill from ansible-doc
   ```
@@ -209,8 +210,15 @@ Three subcommands:
   `--install` maps platform names to paths:
   - `cursor` -> `~/.cursor/skills/`
   - `claude` -> `~/.claude/skills/`
+  - `gemini` -> `~/.gemini/skills/`
 
   Default (no flag): writes to `skills/` in the project directory.
+
+- **`ansibleclaw uninstall`** -- Remove a skill directory from an agent platform path
+  ```
+  ansibleclaw uninstall ansible_package --platform cursor
+  ```
+  Requires `--platform` (`cursor`, `claude`, or `gemini`). Does not remove from project `skills/`.
 
 - **`ansibleclaw search`** (convenience) -- Quick module search
   ```
@@ -238,7 +246,7 @@ The heart of the factory. Wraps `ansible-doc` to extract structured module infor
 ### 4. `src/ansibleclaw/config.py` -- Configuration
 
 - `SKILLS_DIR`: default output for generated skills (default: `skills/`)
-- `INSTALL_PATHS`: platform name -> skill directory mapping (`cursor` -> `~/.cursor/skills/`, `claude` -> `~/.claude/skills/`)
+- `INSTALL_PATHS`: platform name -> skill directory mapping (`cursor`, `claude`, `gemini` -> `~/.cursor/skills/`, `~/.claude/skills/`, `~/.gemini/skills/`)
 - AAP Controller settings: `AAP_CONTROLLER_URL`, `AAP_CONTROLLER_TOKEN`, `AAP_VERIFY_SSL`, `AAP_DEFAULT_INVENTORY`, `AAP_DEFAULT_CREDENTIAL`, `AAP_DEFAULT_ORGANIZATION`
 - Reads from environment variables with sensible defaults
 
@@ -359,7 +367,8 @@ A local web dashboard launched via `ansibleclaw ui`. Built with FastAPI + Jinja2
 - `GET /skills` -- list all skills from `config.SKILLS_DIR`, read their frontmatter
 - `GET /skills/{name}` -- view a skill's SKILL.md content rendered as HTML
 - `DELETE /skills/{name}` -- delete a skill directory
-- `POST /skills/{name}/install` -- copy skill to agent directory (accepts platform: cursor/claude)
+- `POST /skills/{name}/install` -- copy skill to agent directory (accepts platform: cursor/claude/gemini)
+- `POST /skills/{name}/uninstall` -- remove skill copy from agent directory (same platforms)
 - `GET /search` -- module search page
 - `GET /search/results?q=redis&ns=community.general` -- HTMX partial: returns filtered module list (calls `core.parser.list_modules()`)
 - `GET /search/detail/{module}` -- HTMX partial: returns module details (calls `core.parser.get_module_doc()`)
@@ -371,7 +380,7 @@ A local web dashboard launched via `ansibleclaw ui`. Built with FastAPI + Jinja2
 **Templates (Jinja2 + HTMX)**:
 
 - `base.html` -- shared layout: nav bar (Skills / Search / Generate / Inventory), Pico CSS via CDN, HTMX via CDN
-- `skills.html` -- table of skills with view/delete/install actions. HTMX-powered delete (no page reload).
+- `skills.html` -- table of skills with view/delete/install/uninstall actions. HTMX-powered delete (no page reload).
 - `search.html` -- search bar with namespace dropdown. Results load via HTMX into a results div. Each result row has a "Generate Skill" button.
 - `generate.html` -- module name input (with autocomplete from search), target selector (project/Cursor/Claude/custom), live preview pane that updates via HTMX as you type, confirm button.
 - `inventory.html` -- code editor (textarea or lightweight editor like CodeMirror via CDN) showing `hosts.yml`, save button.

@@ -17,6 +17,7 @@ _CLI_CTX = {
     "aap_project": "",
     "aap_ee": "",
     "aap_organization": "Default",
+    "aap_scm_url": "",
 }
 
 # AAP context for AAP-mode tests
@@ -29,6 +30,7 @@ _AAP_CTX = {
     "aap_project": "AnsibleClaw",
     "aap_ee": "Default execution environment",
     "aap_organization": "Default",
+    "aap_scm_url": "",
 }
 
 
@@ -266,6 +268,17 @@ class TestSkillTemplateAAPMode:
         assert "AAP mode is active" in result
         assert "CLI mode is active" not in result
 
+    def test_aap_mode_references_publish_script(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "publish_playbook.sh" in result
+
     def test_baked_aap_url_shown(self, render_aap_mode):
         result = render_aap_mode(
             module_name="ansible.builtin.package",
@@ -310,7 +323,7 @@ class TestSkillTemplateAAPMode:
         )
         assert "## How to Execute (AAP)" in result
 
-    def test_aap_adhoc_example(self, render_aap_mode):
+    def test_aap_adhoc_marked_diagnostics_only(self, render_aap_mode):
         result = render_aap_mode(
             module_name="ansible.builtin.package",
             skill_name="package",
@@ -319,11 +332,11 @@ class TestSkillTemplateAAPMode:
             examples="",
             example_args="name=nginx state=present",
         )
-        assert "aap_run.py adhoc" in result
-        assert "name=nginx state=present" in result
+        assert "Optional: ad-hoc" in result
+        assert "diagnostics only" in result
 
     def test_aap_quick_start_prefers_jt_over_adhoc(self, render_aap_mode):
-        """Quick Start should list create-jt/launch before optional ad-hoc."""
+        """Quick Start should keep JT guidance and avoid ad-hoc commands."""
         result = render_aap_mode(
             module_name="ansible.builtin.package",
             skill_name="package",
@@ -337,7 +350,8 @@ class TestSkillTemplateAAPMode:
         assert qs != -1 and end != -1
         chunk = result[qs:end]
         assert "#### Optional: ad-hoc" in chunk
-        assert chunk.find("aap_run.py create-jt") < chunk.find("aap_run.py adhoc")
+        assert "aap_run.py create-jt" in chunk
+        assert "aap_run.py adhoc" not in chunk
 
     def test_how_to_execute_jt_before_adhoc(self, render_aap_mode):
         result = render_aap_mode(
@@ -352,6 +366,17 @@ class TestSkillTemplateAAPMode:
         jt = result.find("### Job Templates", sec)
         ad = result.find("### Optional: ad-hoc", sec)
         assert jt != -1 and ad != -1 and jt < ad
+
+    def test_package_module_warns_about_adhoc_restrictions(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+        )
+        assert "many Controllers reject ad-hoc usage of `package`" in result
 
     def test_aap_launch_example(self, render_aap_mode):
         result = render_aap_mode(
@@ -374,6 +399,19 @@ class TestSkillTemplateAAPMode:
             example_args="name=nginx state=present",
         )
         assert "aap_run.py create-jt" in result
+
+    def test_aap_scm_url_hint_rendered_when_set(self, render_aap_mode):
+        result = render_aap_mode(
+            module_name="ansible.builtin.package",
+            skill_name="package",
+            short_description="Test",
+            params=[],
+            examples="",
+            example_args="name=nginx state=present",
+            aap_scm_url="https://git.example.com/org/repo.git",
+        )
+        assert "https://git.example.com/org/repo.git" in result
+        assert "SCM URL hint" in result
 
     def test_aap_status_example(self, render_aap_mode):
         result = render_aap_mode(
@@ -433,7 +471,7 @@ class TestSkillTemplateAAPMode:
             example_args="name=nginx",
         )
         assert "AAP_CONTROLLER_TOKEN" in result
-        assert "MUST be set" in result
+        assert "required only for Controller API calls" in result
 
 
 class TestAAPRunTemplate:

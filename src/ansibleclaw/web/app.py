@@ -150,6 +150,7 @@ def _render_skill_md(metadata: dict) -> str:
     ctx["aap_project"] = AAPSettings.get("default_project")
     ctx["aap_ee"] = AAPSettings.get("default_ee")
     ctx["aap_organization"] = AAPSettings.get("default_organization")
+    ctx["aap_scm_url"] = AAPSettings.get("default_scm_url").strip()
 
     return template.render(**ctx)
 
@@ -227,6 +228,24 @@ async def install_skill(name: str, platform: str = Form(...)):
     shutil.copytree(skill_dir, target)
     return HTMLResponse(
         f'<span class="ac-success">\u2713 Installed to {target}</span>'
+    )
+
+
+@app.post("/skills/{name}/uninstall", response_class=HTMLResponse)
+async def uninstall_skill(name: str, platform: str = Form(...)):
+    platform = platform.lower()
+    if platform not in INSTALL_PATHS:
+        return HTMLResponse(f"Unknown platform: {platform}", status_code=400)
+    target = INSTALL_PATHS[platform] / name
+    if not target.exists():
+        return HTMLResponse(
+            f'<span class="ac-success">No copy at {target} (already absent).</span>'
+        )
+    if not target.is_dir():
+        return HTMLResponse(f"Not a directory: {target}", status_code=400)
+    shutil.rmtree(target)
+    return HTMLResponse(
+        f'<span class="ac-success">\u2713 Removed from {target}</span>'
     )
 
 
@@ -1236,17 +1255,6 @@ async def api_aap_deploy_skill(
                 yield _step("Syncing AAP project (this may take a moment)\u2026")
                 client.sync_project_and_wait(actual_project_id)
                 yield _ok("Project synced")
-
-                yield _step("Verifying playbook in project\u2026")
-                playbooks = client.list_project_playbooks(actual_project_id)
-                if effective_playbook not in playbooks:
-                    avail = ", ".join(playbooks[:20]) if playbooks else "(none)"
-                    yield _err(
-                        f"Playbook <code>{effective_playbook}</code> not found after sync. "
-                        f"Available: {avail}"
-                    )
-                    return
-                yield _ok(f"Playbook verified: <code>{effective_playbook}</code>")
 
             yield _step(f"Creating Job Template <code>{jt_name}</code>\u2026")
             result = client.create_job_template(
