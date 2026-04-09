@@ -371,6 +371,114 @@ async def generate_skill(
     )
 
 
+# --- Compose ---
+
+
+@app.get("/compose", response_class=HTMLResponse)
+async def compose_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "compose.html", {
+        "page": "compose",
+        "platforms": list(INSTALL_PATHS.keys()),
+    })
+
+
+@app.get("/compose/preview", response_class=HTMLResponse)
+async def compose_preview(
+    request: Request,
+    name: str = "",
+    description: str = "",
+    modules: list[str] = Query(default=[]),
+):
+    if not name or not modules:
+        return HTMLResponse("")
+
+    from ansibleclaw.cli import _render_composite_skill
+
+    modules_metadata: list[dict] = []
+    for module_name in modules:
+        try:
+            doc, doc_meta = resolve_module_doc(module_name)
+            meta = extract_module_metadata(doc)
+            meta.update(doc_meta)
+            modules_metadata.append(meta)
+        except AnsibleDocError as exc:
+            return HTMLResponse(
+                f'<p class="ac-error">Failed to fetch docs for '
+                f"<code>{module_name}</code>: {exc}</p>"
+            )
+
+    if not description:
+        description = f"Composite skill combining {len(modules)} Ansible modules"
+
+    try:
+        preview = _render_composite_skill(name, description, modules_metadata)
+    except Exception as exc:
+        return HTMLResponse(f'<p class="ac-error">Render error: {exc}</p>')
+
+    return HTMLResponse(f"<pre><code>{preview}</code></pre>")
+
+
+@app.post("/compose", response_class=HTMLResponse)
+async def compose_skill(request: Request):
+    form = await request.form()
+    name = form.get("name", "").strip()
+    description = form.get("description", "").strip()
+    modules = form.getlist("modules")
+    target = form.get("target", "project")
+    custom_path = form.get("custom_path", "")
+
+    if not name:
+        return HTMLResponse('<p class="ac-error">Skill name is required.</p>')
+    if not modules:
+        return HTMLResponse('<p class="ac-error">At least one module is required.</p>')
+
+    from ansibleclaw.cli import _write_composite_skill_package
+
+    modules_metadata: list[dict] = []
+    for module_name in modules:
+        try:
+            doc, doc_meta = resolve_module_doc(module_name)
+            meta = extract_module_metadata(doc)
+            meta.update(doc_meta)
+            modules_metadata.append(meta)
+        except AnsibleDocError as exc:
+            return HTMLResponse(
+                f'<p class="ac-error">Failed to fetch docs for '
+                f"<code>{module_name}</code>: {exc}</p>"
+            )
+
+    if not description:
+        description = f"Composite skill combining {len(modules)} Ansible modules"
+
+    skill_dir_name = f"ansible_{name.replace('-', '_')}"
+
+    if target == "project":
+        output_dir = SKILLS_DIR / skill_dir_name
+    elif target in INSTALL_PATHS:
+        output_dir = INSTALL_PATHS[target] / skill_dir_name
+    elif target == "custom" and custom_path:
+        output_dir = Path(custom_path) / skill_dir_name
+    else:
+        return HTMLResponse('<p class="ac-error">Invalid target</p>')
+
+    try:
+        _write_composite_skill_package(output_dir, name, description, modules_metadata)
+    except Exception as exc:
+        return HTMLResponse(f'<p class="ac-error">Generation failed: {exc}</p>')
+
+    download_link = ""
+    if target == "project":
+        download_link = (
+            f' &mdash; <a href="/skills/{skill_dir_name}/download">Download ZIP</a>'
+        )
+
+    return HTMLResponse(
+        f'<p class="ac-success">Composite skill generated: '
+        f"<code>{output_dir}</code>"
+        f" ({len(modules)} modules, SKILL.md, scripts/, assets/){download_link}</p>"
+    )
+
+
 _DEFAULT_LOCAL_INVENTORY = (
     "# Local / CLI inventory (development). Production runs use AAP Controller inventories.\n"
     "all:\n"

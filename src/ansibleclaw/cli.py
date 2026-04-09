@@ -2,6 +2,7 @@
 
 Subcommands:
     generate  -- Generate a skill package for an Ansible module
+    compose   -- Generate a composite skill from multiple modules
     search    -- Search available Ansible modules by keyword
     uninstall -- Remove a skill from an agent platform install directory
     ui        -- Launch the web management dashboard
@@ -15,6 +16,7 @@ import shutil
 import stat
 import sys
 from pathlib import Path
+from typing import Any
 
 from ansibleclaw import __version__
 from ansibleclaw.config import INSTALL_PATHS, SKILLS_DIR, TEMPLATE_DIR, TEMPLATE_PATH
@@ -240,6 +242,163 @@ def _write_collection_skill_package(
     )
 
 
+# ---------------------------------------------------------------------------
+# Recipe parsing for composite skills
+# ---------------------------------------------------------------------------
+
+
+def _parse_recipe(path: Path) -> dict[str, Any]:
+    """Parse a compose recipe YAML file.
+
+    Supports two formats:
+
+    Simple (module list as strings)::
+
+        name: web-server-setup
+        description: Deploy and configure a web server
+        modules:
+          - ansible.builtin.package
+          - ansible.builtin.service
+
+    Extended (modules with pre-filled vars)::
+
+        name: web-server-setup
+        description: Deploy and configure a web server
+        modules:
+          - name: ansible.builtin.package
+            vars:
+              name: nginx
+              state: present
+
+    Returns ``{"name": str, "description": str, "modules": list}``
+    where each module entry is ``{"name": str, "vars": dict | None}``.
+    """
+    import yaml
+
+    raw = yaml.safe_load(path.read_text())
+    if not isinstance(raw, dict):
+        raise ValueError(f"Recipe file must be a YAML mapping, got {type(raw).__name__}")
+
+    name = raw.get("name", "")
+    if not name:
+        raise ValueError("Recipe file must contain a 'name' field")
+
+    description = raw.get("description", "")
+    raw_modules = raw.get("modules", [])
+    if not raw_modules:
+        raise ValueError("Recipe file must contain a non-empty 'modules' list")
+
+    modules: list[dict[str, Any]] = []
+    for entry in raw_modules:
+        if isinstance(entry, str):
+            modules.append({"name": entry, "vars": None})
+        elif isinstance(entry, dict):
+            mod_name = entry.get("name", "")
+            if not mod_name:
+                raise ValueError(f"Module entry must have a 'name' field: {entry}")
+            modules.append({"name": mod_name, "vars": entry.get("vars")})
+        else:
+            raise ValueError(f"Invalid module entry: {entry}")
+
+    return {"name": name, "description": description, "modules": modules}
+
+
+# ---------------------------------------------------------------------------
+# Composite skill context and writer
+# ---------------------------------------------------------------------------
+
+
+def _composite_template_context(
+    name: str,
+    description: str,
+    modules_metadata: list[dict],
+) -> dict:
+    """Build template context for a multi-module composite skill."""
+    from ansibleclaw.config import AAPSettings
+
+    collection_fqcns = sorted({
+        _collection_fqcn(m["module_name"])
+        for m in modules_metadata
+        if _collection_fqcn(m["module_name"])
+    })
+
+    ctx: dict[str, Any] = {
+        "skill_name": name,
+        "description": description,
+        "modules": modules_metadata,
+        "collection_fqcns": collection_fqcns,
+    }
+
+    aap_url = AAPSettings.get("url")
+    aap_token = AAPSettings.get("token")
+    ctx["aap_configured"] = bool(aap_url and aap_token)
+    ctx["aap_url"] = aap_url
+    ctx["aap_verify_ssl"] = AAPSettings.get("verify_ssl")
+    ctx["aap_inventory"] = AAPSettings.get("default_inventory")
+    ctx["aap_credential"] = AAPSettings.get("default_credential")
+    ctx["aap_project"] = AAPSettings.get("default_project")
+    ctx["aap_ee"] = AAPSettings.get("default_ee")
+    ctx["aap_organization"] = AAPSettings.get("default_organization")
+    ctx["aap_scm_url"] = AAPSettings.get("default_scm_url").strip()
+
+    return ctx
+
+
+def _render_composite_skill(
+    name: str,
+    description: str,
+    modules_metadata: list[dict],
+) -> str:
+    """Render the composite skill template and return SKILL.md content."""
+    env = _get_template_env()
+    template = env.get_template("composite_skill_template.md")
+    ctx = _composite_template_context(name, description, modules_metadata)
+    return template.render(**ctx)
+
+
+def _write_composite_skill_package(
+    output_dir: Path,
+    name: str,
+    description: str,
+    modules_metadata: list[dict],
+) -> None:
+    """Write the full composite skill package."""
+    env = _get_template_env()
+    ctx = _composite_template_context(name, description, modules_metadata)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    skill_template = env.get_template("composite_skill_template.md")
+    (output_dir / "SKILL.md").write_text(skill_template.render(**ctx))
+
+    scripts_dir = output_dir / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+
+    for script_name in ("composite_run.sh", "composite_check.sh", "composite_publish_playbook.sh"):
+        template = env.get_template(f"{script_name}.j2")
+        out_name = script_name.replace("composite_", "")
+        script_path = scripts_dir / out_name
+        script_path.write_text(template.render(**ctx))
+        script_path.chmod(
+            script_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH
+        )
+
+    aap_template = env.get_template("composite_aap_run.py.j2")
+    aap_path = scripts_dir / "aap_run.py"
+    aap_path.write_text(aap_template.render(**ctx))
+    aap_path.chmod(aap_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    assets_dir = output_dir / "assets"
+    assets_dir.mkdir(exist_ok=True)
+
+    playbook_template = env.get_template("composite_playbook.yml.j2")
+    (assets_dir / "playbook.yml").write_text(playbook_template.render(**ctx))
+
+    if ctx["collection_fqcns"]:
+        req_template = env.get_template("composite_requirements.yml.j2")
+        (assets_dir / "requirements.yml").write_text(req_template.render(**ctx))
+
+
 def _generate_single(
     module_name: str,
     args: argparse.Namespace,
@@ -328,6 +487,80 @@ def cmd_generate(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     print(f"Skill generated: {output_dir}/")
+    print(
+        "  SKILL.md, scripts/run.sh, scripts/check.sh, scripts/publish_playbook.sh, "
+        "scripts/aap_run.py, assets/playbook.yml"
+    )
+
+    if getattr(args, "zip", False):
+        from ansibleclaw.core.packager import package_skill_zip
+        zip_path = package_skill_zip(output_dir)
+        print(f"  Packaged: {zip_path}")
+
+
+def cmd_compose(args: argparse.Namespace) -> None:
+    """Generate a composite skill package from multiple Ansible modules."""
+    auto_install = getattr(args, "auto_install", False)
+    collection_version = getattr(args, "collection_version", None)
+
+    if args.file:
+        recipe_path = Path(args.file)
+        if not recipe_path.exists():
+            print(f"Error: recipe file not found: {recipe_path}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            recipe = _parse_recipe(recipe_path)
+        except (ValueError, Exception) as exc:
+            print(f"Error: invalid recipe file: {exc}", file=sys.stderr)
+            sys.exit(1)
+        name = args.name or recipe["name"]
+        description = args.description or recipe.get("description", "")
+        module_entries = recipe["modules"]
+    elif args.modules:
+        if not args.name:
+            print("Error: --name is required when using --modules", file=sys.stderr)
+            sys.exit(1)
+        name = args.name
+        description = args.description or ""
+        raw_modules = [m.strip() for m in args.modules.split(",") if m.strip()]
+        if not raw_modules:
+            print("Error: --modules must contain at least one module", file=sys.stderr)
+            sys.exit(1)
+        module_entries = [{"name": m, "vars": None} for m in raw_modules]
+    else:
+        print("Error: --modules or --file is required", file=sys.stderr)
+        sys.exit(1)
+
+    if not description:
+        description = f"Composite skill combining {len(module_entries)} Ansible modules"
+
+    skill_dir_name = f"ansible_{name.replace('-', '_')}"
+
+    print(f"Composing skill '{name}' from {len(module_entries)} module(s)...")
+    modules_metadata: list[dict] = []
+    for entry in module_entries:
+        module_name = entry["name"]
+        print(f"  Fetching docs for {module_name}...", end=" ")
+        try:
+            doc, doc_meta = resolve_module_doc(
+                module_name,
+                collection_version=collection_version,
+                auto_install=auto_install,
+            )
+            metadata = extract_module_metadata(doc)
+            metadata.update(doc_meta)
+            if entry.get("vars"):
+                metadata["prefilled_vars"] = entry["vars"]
+            modules_metadata.append(metadata)
+            print("OK")
+        except AnsibleDocError as exc:
+            print(f"FAILED: {exc}")
+            sys.exit(1)
+
+    output_dir = _resolve_output_dir(args, skill_dir_name)
+    _write_composite_skill_package(output_dir, name, description, modules_metadata)
+
+    print(f"\nComposite skill generated: {output_dir}/")
     print(
         "  SKILL.md, scripts/run.sh, scripts/check.sh, scripts/publish_playbook.sh, "
         "scripts/aap_run.py, assets/playbook.yml"
@@ -452,6 +685,43 @@ def main() -> None:
         help="Comma-separated module short names to include (used with --collection)",
     )
     gen_parser.set_defaults(func=cmd_generate)
+
+    # --- compose ---
+    compose_parser = subparsers.add_parser(
+        "compose",
+        help="Generate a composite skill from multiple modules.",
+    )
+    compose_parser.add_argument(
+        "--name", metavar="NAME",
+        help="Skill name (e.g., web-server-setup). Required with --modules.",
+    )
+    compose_parser.add_argument(
+        "--description", metavar="TEXT",
+        help="Short description of the composite skill",
+    )
+    compose_parser.add_argument(
+        "--modules", metavar="LIST",
+        help="Comma-separated module FQCNs (e.g., ansible.builtin.package,ansible.builtin.service)",
+    )
+    compose_parser.add_argument(
+        "-f", "--file", metavar="PATH",
+        help="Recipe YAML file defining the composition",
+    )
+    compose_parser.add_argument(
+        "--install", metavar="PLATFORM",
+        help="Install to agent platform (cursor, claude, gemini)",
+    )
+    compose_parser.add_argument("--output", metavar="DIR", help="Custom output directory")
+    compose_parser.add_argument("--zip", action="store_true", help="Also create a .zip archive")
+    compose_parser.add_argument(
+        "--auto-install", action="store_true",
+        help="Automatically install collections via ansible-galaxy if not present locally",
+    )
+    compose_parser.add_argument(
+        "--collection-version", metavar="VER",
+        help="Pin the collection version for Galaxy fallback docs",
+    )
+    compose_parser.set_defaults(func=cmd_compose)
 
     # --- search ---
     search_parser = subparsers.add_parser(

@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Compose Skill{% endblock %}
+
+{% block content %}
+<div class="ac-page-header">
+    <h1>Compose Skill</h1>
+    <p>Combine multiple Ansible modules into a single use-case-driven skill package.</p>
+</div>
+
+<div class="pf-v6-l-grid pf-m-gutter pf-m-all-6-col-on-lg">
+    <div>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__title">
+                <h2 class="pf-v6-c-card__title-text">Configuration</h2>
+            </div>
+            <div class="pf-v6-c-card__body">
+                <form id="compose-form" class="pf-v6-c-form" hx-post="/compose" hx-target="#compose-result" hx-swap="innerHTML">
+                    <div class="pf-v6-c-form__group">
+                        <label class="pf-v6-c-form__label" for="compose-name">
+                            <span class="pf-v6-c-form__label-text">Skill Name</span>
+                            <span class="pf-v6-c-form__label-required" aria-hidden="true">&#42;</span>
+                        </label>
+                        <span class="pf-v6-c-form-control">
+                            <input type="text" name="name" id="compose-name"
+                                   placeholder="e.g., web-server-setup" required autofocus>
+                        </span>
+                        <span class="pf-v6-c-form__helper-text">Used as the skill directory name (hyphens become underscores).</span>
+                    </div>
+
+                    <div class="pf-v6-c-form__group">
+                        <label class="pf-v6-c-form__label" for="compose-desc">
+                            <span class="pf-v6-c-form__label-text">Description</span>
+                        </label>
+                        <span class="pf-v6-c-form-control">
+                            <input type="text" name="description" id="compose-desc"
+                                   placeholder="e.g., Deploy and configure a web server with firewall rules">
+                        </span>
+                    </div>
+
+                    <div class="pf-v6-c-form__group">
+                        <label class="pf-v6-c-form__label">
+                            <span class="pf-v6-c-form__label-text">Modules</span>
+                            <span class="pf-v6-c-form__label-required" aria-hidden="true">&#42;</span>
+                        </label>
+
+                        <div id="module-list" style="margin-bottom: 0.75rem;">
+                        </div>
+
+                        <div style="display: flex; gap: 0.5rem; align-items: flex-start;">
+                            <span class="pf-v6-c-form-control" style="flex: 1;">
+                                <input type="text" id="module-add-input"
+                                       placeholder="e.g., ansible.builtin.package"
+                                       onkeydown="if(event.key==='Enter'){event.preventDefault();addModule();}">
+                            </span>
+                            <button type="button" class="pf-v6-c-button pf-m-secondary" onclick="addModule()">
+                                Add Module
+                            </button>
+                        </div>
+                        <span class="pf-v6-c-form__helper-text">Add modules in the order they should execute. Modules are referenced by their FQCN.</span>
+                    </div>
+
+                    <div class="pf-v6-c-form__group" role="group" aria-labelledby="compose-target-legend">
+                        <label class="pf-v6-c-form__label" id="compose-target-legend">
+                            <span class="pf-v6-c-form__label-text">Target</span>
+                        </label>
+                        <div class="pf-v6-c-radio" style="margin-bottom:0.25rem;">
+                            <input class="pf-v6-c-radio__input" type="radio" id="compose-target-project" name="target" value="project" checked>
+                            <label class="pf-v6-c-radio__label" for="compose-target-project">Project (skills/)</label>
+                        </div>
+                        {% for platform in platforms %}
+                        <div class="pf-v6-c-radio" style="margin-bottom:0.25rem;">
+                            <input class="pf-v6-c-radio__input" type="radio" id="compose-target-{{ platform }}" name="target" value="{{ platform }}">
+                            <label class="pf-v6-c-radio__label" for="compose-target-{{ platform }}">{{ platform | capitalize }}</label>
+                        </div>
+                        {% endfor %}
+                        <div class="pf-v6-c-radio" style="margin-bottom:0.25rem;">
+                            <input class="pf-v6-c-radio__input" type="radio" id="compose-target-custom" name="target" value="custom">
+                            <label class="pf-v6-c-radio__label" for="compose-target-custom">Custom path</label>
+                        </div>
+                        <span class="pf-v6-c-form-control" style="margin-top:0.5rem;">
+                            <input type="text" name="custom_path" placeholder="/path/to/skills/">
+                        </span>
+                    </div>
+
+                    <div class="pf-v6-c-form__group pf-v6-c-form__group--action" style="display:flex;gap:0.5rem;">
+                        <button type="button"
+                                class="pf-v6-c-button pf-m-secondary"
+                                onclick="previewComposite()"
+                                id="preview-btn">
+                            Preview
+                        </button>
+                        <button type="submit" class="pf-v6-c-button pf-m-primary">Compose</button>
+                    </div>
+                </form>
+            </div>
+            <div class="pf-v6-c-card__footer">
+                <div id="compose-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__title">
+                <h2 class="pf-v6-c-card__title-text">Preview <span id="preview-spinner" class="htmx-indicator" aria-busy="true"></span></h2>
+            </div>
+            <div class="pf-v6-c-card__body">
+                <div id="preview-pane">
+                    <p><small>Add modules and click "Preview" to see the SKILL.md that will be generated.</small></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var moduleCount = 0;
+
+function addModule() {
+    var input = document.getElementById('module-add-input');
+    var value = input.value.trim();
+    if (!value) return;
+
+    moduleCount++;
+    var list = document.getElementById('module-list');
+    var item = document.createElement('div');
+    item.id = 'module-item-' + moduleCount;
+    item.style.cssText = 'display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;padding:0.35rem 0.5rem;border-radius:var(--pf-t--global--border--radius--small);background:var(--pf-t--global--background--color--secondary--default);';
+    item.innerHTML =
+        '<input type="hidden" name="modules" value="' + value + '">' +
+        '<code style="flex:1;">' + value + '</code>' +
+        '<button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" onclick="this.parentElement.remove();" title="Remove">&times;</button>';
+    list.appendChild(item);
+    input.value = '';
+    input.focus();
+}
+
+function previewComposite() {
+    var name = document.getElementById('compose-name').value.trim();
+    var desc = document.getElementById('compose-desc').value.trim();
+    var inputs = document.querySelectorAll('input[name="modules"]');
+    var modules = [];
+    inputs.forEach(function(el) { if(el.value) modules.push(el.value); });
+
+    if (!name || modules.length === 0) {
+        document.getElementById('preview-pane').innerHTML = '<p class="ac-warning">Provide a skill name and at least one module.</p>';
+        return;
+    }
+
+    var params = new URLSearchParams();
+    params.set('name', name);
+    params.set('description', desc);
+    modules.forEach(function(m) { params.append('modules', m); });
+
+    htmx.ajax('GET', '/compose/preview?' + params.toString(), {target: '#preview-pane', swap: 'innerHTML'});
+}
+</script>
+{% endblock %}
