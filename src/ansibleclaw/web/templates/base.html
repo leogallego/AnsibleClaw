@@ -42,10 +42,13 @@
                         <a href="/generate" class="pf-v6-c-nav__link{% if page == 'generate' %} pf-m-current{% endif %}" {% if page == "generate" %}aria-current="page"{% endif %}>Generate</a>
                     </li>
                     <li class="pf-v6-c-nav__item">
+                        <a href="/compose" class="pf-v6-c-nav__link{% if page == 'compose' %} pf-m-current{% endif %}" {% if page == "compose" %}aria-current="page"{% endif %}>Compose</a>
+                    </li>
+                    <li class="pf-v6-c-nav__item">
                         <a href="/inventory" class="pf-v6-c-nav__link{% if page == 'inventory' %} pf-m-current{% endif %}" {% if page == "inventory" %}aria-current="page"{% endif %}>Inventory</a>
                     </li>
                     <li class="pf-v6-c-nav__item">
-                        <a href="/aap" class="pf-v6-c-nav__link{% if page == 'aap' %} pf-m-current{% endif %}" {% if page == "aap" %}aria-current="page"{% endif %}>AAP {% if aap_connected %}<span class="ac-aap-dot ac-aap-dot--connected" title="AAP Connected">&#9679;</span>{% elif aap_configured %}<span class="ac-aap-dot ac-aap-dot--configured" title="AAP Configured (not verified)">&#9679;</span>{% endif %}</a>
+                        <a href="/aap" class="pf-v6-c-nav__link{% if page == 'aap' %} pf-m-current{% endif %}" {% if page == "aap" %}aria-current="page"{% endif %}>AAP {% if aap_connected %}<span class="ac-aap-dot ac-aap-dot--connected" title="AAP Connected">&#9679;</span>{% elif aap_status_unknown %}<span hx-get="/aap/nav-status" hx-trigger="load" hx-swap="outerHTML"></span>{% elif aap_configured %}<span class="ac-aap-dot ac-aap-dot--configured" title="AAP Configured (not verified)">&#9679;</span>{% endif %}</a>
                     </li>
                 </ul>
             </nav>

@@ -1,0 +1,379 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Compose Skill{% endblock %}
+
+{% block content %}
+<div class="ac-page-header">
+    <h1>Compose Skill</h1>
+    <p>Combine multiple Ansible modules into a single use-case-driven skill package.</p>
+</div>
+
+<div class="pf-v6-l-grid pf-m-gutter pf-m-all-6-col-on-lg">
+    <div>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__title">
+                <h2 class="pf-v6-c-card__title-text">Configuration</h2>
+            </div>
+            <div class="pf-v6-c-card__body">
+                <form id="compose-form" class="pf-v6-c-form" hx-post="/compose" hx-target="#compose-result" hx-swap="innerHTML">
+                    <div class="pf-v6-c-form__group">
+                        <label class="pf-v6-c-form__label" for="compose-name">
+                            <span class="pf-v6-c-form__label-text">Skill Name</span>
+                            <span class="pf-v6-c-form__label-required" aria-hidden="true">&#42;</span>
+                        </label>
+                        <span class="pf-v6-c-form-control">
+                            <input type="text" name="name" id="compose-name"
+                                   placeholder="e.g., web-server-setup" required autofocus>
+                        </span>
+                        <span class="pf-v6-c-form__helper-text">Used as the skill directory name (hyphens become underscores).</span>
+                    </div>
+
+                    <div class="pf-v6-c-form__group">
+                        <label class="pf-v6-c-form__label" for="compose-desc">
+                            <span class="pf-v6-c-form__label-text">Description</span>
+                        </label>
+                        <span class="pf-v6-c-form-control">
+                            <input type="text" name="description" id="compose-desc"
+                                   placeholder="e.g., Deploy and configure a web server with firewall rules">
+                        </span>
+                    </div>
+
+                    <div class="pf-v6-c-form__group">
+                        <label class="pf-v6-c-form__label">
+                            <span class="pf-v6-c-form__label-text">Modules</span>
+                            <span class="pf-v6-c-form__label-required" aria-hidden="true">&#42;</span>
+                        </label>
+
+                        <div id="module-list" style="margin-bottom: 0.75rem;">
+                        </div>
+
+                        <div style="display: flex; gap: 0.5rem; align-items: flex-start;">
+                            <div style="flex: 1; position: relative;">
+                                <span class="pf-v6-c-form-control">
+                                    <input type="text" id="module-add-input"
+                                           placeholder="Type to search or enter FQCN…"
+                                           autocomplete="off"
+                                           onkeydown="onModuleInputKeydown(event);"
+                                           oninput="onModuleInputChange();"
+                                           onfocus="onModuleInputFocus();">
+                                </span>
+                                <div id="module-dropdown"
+                                     style="display:none; position:absolute; top:100%; left:0; right:0; z-index:1000;
+                                            max-height:16rem; overflow-y:auto; border:1px solid var(--pf-t--global--border--color--default);
+                                            border-radius:var(--pf-t--global--border--radius--small);
+                                            background:var(--pf-t--global--background--color--primary--default);
+                                            box-shadow:var(--pf-t--global--box-shadow--md);">
+                                </div>
+                            </div>
+                            <button type="button" id="module-add-btn" class="pf-v6-c-button pf-m-secondary" onclick="addModule()">
+                                Add Module
+                            </button>
+                        </div>
+                        <div id="module-add-error" style="margin-top:0.25rem;"></div>
+                        <span class="pf-v6-c-form__helper-text">Select from available modules or type a fully-qualified name (e.g. ansible.builtin.package).</span>
+                    </div>
+
+                    <div class="pf-v6-c-form__group" role="group" aria-labelledby="compose-target-legend">
+                        <label class="pf-v6-c-form__label" id="compose-target-legend">
+                            <span class="pf-v6-c-form__label-text">Target</span>
+                        </label>
+                        <div class="pf-v6-c-radio" style="margin-bottom:0.25rem;">
+                            <input class="pf-v6-c-radio__input" type="radio" id="compose-target-project" name="target" value="project" checked>
+                            <label class="pf-v6-c-radio__label" for="compose-target-project">Project (skills/)</label>
+                        </div>
+                        {% for platform in platforms %}
+                        <div class="pf-v6-c-radio" style="margin-bottom:0.25rem;">
+                            <input class="pf-v6-c-radio__input" type="radio" id="compose-target-{{ platform }}" name="target" value="{{ platform }}">
+                            <label class="pf-v6-c-radio__label" for="compose-target-{{ platform }}">{{ platform | capitalize }}</label>
+                        </div>
+                        {% endfor %}
+                        <div class="pf-v6-c-radio" style="margin-bottom:0.25rem;">
+                            <input class="pf-v6-c-radio__input" type="radio" id="compose-target-custom" name="target" value="custom">
+                            <label class="pf-v6-c-radio__label" for="compose-target-custom">Custom path</label>
+                        </div>
+                        <span class="pf-v6-c-form-control" style="margin-top:0.5rem;">
+                            <input type="text" name="custom_path" placeholder="/path/to/skills/">
+                        </span>
+                    </div>
+
+                    <div class="pf-v6-c-form__group pf-v6-c-form__group--action" style="display:flex;gap:0.5rem;">
+                        <button type="button"
+                                class="pf-v6-c-button pf-m-secondary"
+                                onclick="previewComposite()"
+                                id="preview-btn">
+                            Preview
+                        </button>
+                        <button type="submit" class="pf-v6-c-button pf-m-primary">Compose</button>
+                    </div>
+                </form>
+            </div>
+            <div class="pf-v6-c-card__footer">
+                <div id="compose-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__title">
+                <h2 class="pf-v6-c-card__title-text">Preview <span id="preview-spinner" class="htmx-indicator" aria-busy="true"></span></h2>
+            </div>
+            <div class="pf-v6-c-card__body">
+                <div id="preview-pane">
+                    <p><small>Add modules and click "Preview" to see the SKILL.md that will be generated.</small></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var dragSrc = null;
+var _allModules = [];
+var _dropdownIdx = -1;
+var _dropdownVisible = false;
+
+(function loadModules() {
+    fetch('/api/compose/modules')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.modules) _allModules = data.modules;
+        })
+        .catch(function() {});
+})();
+
+function _renderDropdown(filter) {
+    var dropdown = document.getElementById('module-dropdown');
+    var query = (filter || '').toLowerCase();
+    var matches = [];
+    var limit = 50;
+    for (var i = 0; i < _allModules.length && matches.length < limit; i++) {
+        var m = _allModules[i];
+        if (!query || m.fqcn.toLowerCase().indexOf(query) !== -1 ||
+            m.description.toLowerCase().indexOf(query) !== -1) {
+            matches.push(m);
+        }
+    }
+
+    if (matches.length === 0) {
+        if (query) {
+            dropdown.innerHTML = '<div style="padding:0.5rem 0.75rem;color:var(--pf-t--global--text--color--subtle);font-size:0.85em;">No matches — press Enter or click Add to use this name</div>';
+            dropdown.style.display = 'block';
+        } else {
+            dropdown.style.display = 'none';
+        }
+        _dropdownIdx = -1;
+        _dropdownVisible = matches.length === 0 && !!query;
+        return;
+    }
+
+    var html = '';
+    for (var j = 0; j < matches.length; j++) {
+        var m = matches[j];
+        var desc = m.description ? ' <span style="color:var(--pf-t--global--text--color--subtle);font-size:0.85em;">— ' + m.description.substring(0, 60) + '</span>' : '';
+        html += '<div class="ac-module-option" data-fqcn="' + m.fqcn + '" data-idx="' + j + '"'
+             +  ' style="padding:0.35rem 0.75rem;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"'
+             +  ' onmousedown="selectModuleOption(this);" onmouseenter="highlightOption(' + j + ');">'
+             +  '<code style="font-size:0.9em;">' + m.fqcn + '</code>' + desc + '</div>';
+    }
+    if (_allModules.length > 0 && matches.length >= limit) {
+        html += '<div style="padding:0.35rem 0.75rem;color:var(--pf-t--global--text--color--subtle);font-size:0.85em;">…type more to narrow results</div>';
+    }
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
+    _dropdownIdx = -1;
+    _dropdownVisible = true;
+}
+
+function highlightOption(idx) {
+    var opts = document.querySelectorAll('.ac-module-option');
+    for (var i = 0; i < opts.length; i++) {
+        opts[i].style.background = i === idx
+            ? 'var(--pf-t--global--background--color--secondary--default)'
+            : '';
+    }
+    _dropdownIdx = idx;
+}
+
+function selectModuleOption(el) {
+    var fqcn = el.getAttribute('data-fqcn');
+    document.getElementById('module-add-input').value = fqcn;
+    _hideDropdown();
+    addModule();
+}
+
+function _hideDropdown() {
+    var dd = document.getElementById('module-dropdown');
+    dd.style.display = 'none';
+    dd.innerHTML = '';
+    _dropdownIdx = -1;
+    _dropdownVisible = false;
+}
+
+function onModuleInputChange() {
+    var val = document.getElementById('module-add-input').value.trim();
+    _renderDropdown(val);
+}
+
+function onModuleInputFocus() {
+    var val = document.getElementById('module-add-input').value.trim();
+    if (_allModules.length > 0) {
+        _renderDropdown(val);
+    }
+}
+
+function onModuleInputKeydown(e) {
+    if (e.key === 'Escape') {
+        _hideDropdown();
+        return;
+    }
+    if (!_dropdownVisible) {
+        if (e.key === 'Enter') { e.preventDefault(); addModule(); }
+        return;
+    }
+    var opts = document.querySelectorAll('.ac-module-option');
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        var next = _dropdownIdx + 1;
+        if (next >= opts.length) next = 0;
+        highlightOption(next);
+        if (opts[next]) opts[next].scrollIntoView({block: 'nearest'});
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        var prev = _dropdownIdx - 1;
+        if (prev < 0) prev = opts.length - 1;
+        highlightOption(prev);
+        if (opts[prev]) opts[prev].scrollIntoView({block: 'nearest'});
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (_dropdownIdx >= 0 && _dropdownIdx < opts.length) {
+            selectModuleOption(opts[_dropdownIdx]);
+        } else {
+            _hideDropdown();
+            addModule();
+        }
+    }
+}
+
+document.addEventListener('click', function(e) {
+    var wrapper = document.getElementById('module-add-input');
+    var dropdown = document.getElementById('module-dropdown');
+    if (wrapper && dropdown && !wrapper.contains(e.target) && !dropdown.contains(e.target)) {
+        _hideDropdown();
+    }
+});
+
+function _moduleItem(fqcn) {
+    var item = document.createElement('div');
+    item.className = 'ac-module-item';
+    item.draggable = true;
+    item.style.cssText = 'display:flex;align-items:center;gap:0.35rem;margin-bottom:0.35rem;padding:0.35rem 0.5rem;border-radius:var(--pf-t--global--border--radius--small);background:var(--pf-t--global--background--color--secondary--default);';
+    item.innerHTML =
+        '<input type="hidden" name="modules" value="' + fqcn + '">' +
+        '<span class="ac-drag-handle" style="cursor:grab;opacity:0.5;user-select:none;" title="Drag to reorder">&#9776;</span>' +
+        '<code style="flex:1;">' + fqcn + '</code>' +
+        '<span class="ac-success" style="font-size:0.85em;" title="Module found">&#10003;</span>' +
+        '<button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" onclick="moveModule(this.parentElement,-1)" title="Move up">&uarr;</button>' +
+        '<button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" onclick="moveModule(this.parentElement,1)" title="Move down">&darr;</button>' +
+        '<button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" onclick="this.parentElement.remove();" title="Remove">&times;</button>';
+    item.addEventListener('dragstart', onDragStart);
+    item.addEventListener('dragover', onDragOver);
+    item.addEventListener('drop', onDrop);
+    item.addEventListener('dragend', onDragEnd);
+    return item;
+}
+
+function addModule() {
+    var input = document.getElementById('module-add-input');
+    var btn = document.getElementById('module-add-btn');
+    var errDiv = document.getElementById('module-add-error');
+    var value = input.value.trim();
+    if (!value) return;
+
+    _hideDropdown();
+    btn.disabled = true;
+    btn.textContent = 'Checking\u2026';
+    errDiv.innerHTML = '';
+
+    fetch('/api/compose/resolve-module?name=' + encodeURIComponent(value))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.valid) {
+                var existing = document.querySelectorAll('input[name="modules"]');
+                for (var i = 0; i < existing.length; i++) {
+                    if (existing[i].value === data.fqcn) {
+                        errDiv.innerHTML = '<small class="ac-warning">\u26a0 <code>' + data.fqcn + '</code> is already in the list.</small>';
+                        return;
+                    }
+                }
+                document.getElementById('module-list').appendChild(_moduleItem(data.fqcn));
+                input.value = '';
+            } else {
+                errDiv.innerHTML = '<small class="ac-error">\u2717 ' + data.error + '</small>';
+            }
+        })
+        .catch(function() {
+            errDiv.innerHTML = '<small class="ac-error">\u2717 Validation request failed.</small>';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.textContent = 'Add Module';
+            input.focus();
+        });
+}
+
+function moveModule(el, dir) {
+    var list = el.parentElement;
+    if (dir === -1 && el.previousElementSibling) {
+        list.insertBefore(el, el.previousElementSibling);
+    } else if (dir === 1 && el.nextElementSibling) {
+        list.insertBefore(el.nextElementSibling, el);
+    }
+}
+
+function onDragStart(e) {
+    dragSrc = this;
+    this.style.opacity = '0.4';
+    e.dataTransfer.effectAllowed = 'move';
+}
+function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var target = e.currentTarget;
+    if (target !== dragSrc && target.classList.contains('ac-module-item')) {
+        var rect = target.getBoundingClientRect();
+        var mid = rect.top + rect.height / 2;
+        var list = target.parentElement;
+        if (e.clientY < mid) {
+            list.insertBefore(dragSrc, target);
+        } else {
+            list.insertBefore(dragSrc, target.nextSibling);
+        }
+    }
+}
+function onDrop(e) { e.preventDefault(); }
+function onDragEnd() {
+    dragSrc.style.opacity = '1';
+    dragSrc = null;
+}
+
+function previewComposite() {
+    var name = document.getElementById('compose-name').value.trim();
+    var desc = document.getElementById('compose-desc').value.trim();
+    var inputs = document.querySelectorAll('input[name="modules"]');
+    var modules = [];
+    inputs.forEach(function(el) { if(el.value) modules.push(el.value); });
+
+    if (!name || modules.length === 0) {
+        document.getElementById('preview-pane').innerHTML = '<p class="ac-warning">Provide a skill name and at least one module.</p>';
+        return;
+    }
+
+    var params = new URLSearchParams();
+    params.set('name', name);
+    params.set('description', desc);
+    modules.forEach(function(m) { params.append('modules', m); });
+
+    htmx.ajax('GET', '/compose/preview?' + params.toString(), {target: '#preview-pane', swap: 'innerHTML'});
+}
+</script>
+{% endblock %}

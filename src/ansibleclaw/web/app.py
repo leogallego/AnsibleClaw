@@ -6,7 +6,9 @@ skill generation with preview, and ZIP download.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
+import threading
 import time
 from pathlib import Path
 
@@ -368,6 +370,181 @@ async def generate_skill(
         f'<p class="ac-success">Skill generated{source_note}: '
         f"<code>{output_dir}</code>"
         f" (SKILL.md, scripts/, assets/){download_link}</p>"
+    )
+
+
+# --- Compose ---
+
+
+@app.get("/compose", response_class=HTMLResponse)
+async def compose_page(request: Request):
+    return TEMPLATES.TemplateResponse(request, "compose.html", {
+        "page": "compose",
+        "platforms": list(INSTALL_PATHS.keys()),
+    })
+
+
+@app.get("/api/compose/modules")
+async def compose_list_modules():
+    """Return all available modules for the autocomplete picker.
+
+    Runs ``ansible-doc --list --json`` in a thread to avoid blocking the
+    event loop.  The result is a flat list of ``{fqcn, description}`` objects.
+    """
+    from fastapi.responses import JSONResponse
+
+    loop = asyncio.get_running_loop()
+    try:
+        modules = await loop.run_in_executor(None, lambda: list_modules())
+    except AnsibleDocError as exc:
+        return JSONResponse({"modules": [], "error": str(exc)})
+
+    items = [
+        {"fqcn": fqcn, "description": desc or ""}
+        for fqcn, desc in sorted(modules.items())
+    ]
+    return JSONResponse({"modules": items})
+
+
+@app.get("/api/compose/resolve-module")
+async def compose_resolve_module(name: str = ""):
+    """Validate a fully-qualified module name via ``ansible-doc``.
+
+    Requires a full FQCN (``namespace.collection.module``).  Returns
+    JSON ``{"valid": true, "fqcn": "..."}`` on success or
+    ``{"valid": false, "error": "..."}`` on failure.
+    """
+    from fastapi.responses import JSONResponse
+
+    name = name.strip()
+    if not name:
+        return JSONResponse({"valid": False, "error": "Module name is required."})
+
+    parts = name.split(".")
+    if len(parts) < 3:
+        return JSONResponse({
+            "valid": False,
+            "error": f"'{name}' is not a fully-qualified name. "
+                     f"Use the full FQCN, e.g. ansible.builtin.package.",
+        })
+
+    def _validate(module: str) -> bool:
+        doc = get_module_doc(module)
+        if not doc:
+            return False
+        fqcn = next(iter(doc), None)
+        return (
+            fqcn is not None
+            and fqcn == module
+            and "doc" in doc.get(fqcn, {})
+        )
+
+    loop = asyncio.get_running_loop()
+    try:
+        valid = await loop.run_in_executor(None, lambda: _validate(name))
+    except AnsibleDocError:
+        valid = False
+
+    if valid:
+        return JSONResponse({"valid": True, "fqcn": name})
+    return JSONResponse({"valid": False, "error": f"Module '{name}' not found."})
+
+
+@app.get("/compose/preview", response_class=HTMLResponse)
+async def compose_preview(
+    request: Request,
+    name: str = "",
+    description: str = "",
+    modules: list[str] = Query(default=[]),
+):
+    if not name or not modules:
+        return HTMLResponse("")
+
+    from ansibleclaw.cli import _render_composite_skill
+
+    modules_metadata: list[dict] = []
+    for module_name in modules:
+        try:
+            doc, doc_meta = resolve_module_doc(module_name)
+            meta = extract_module_metadata(doc)
+            meta.update(doc_meta)
+            modules_metadata.append(meta)
+        except AnsibleDocError as exc:
+            return HTMLResponse(
+                f'<p class="ac-error">Failed to fetch docs for '
+                f"<code>{module_name}</code>: {exc}</p>"
+            )
+
+    if not description:
+        description = f"Composite skill combining {len(modules)} Ansible modules"
+
+    try:
+        preview = _render_composite_skill(name, description, modules_metadata)
+    except Exception as exc:
+        return HTMLResponse(f'<p class="ac-error">Render error: {exc}</p>')
+
+    return HTMLResponse(f"<pre><code>{preview}</code></pre>")
+
+
+@app.post("/compose", response_class=HTMLResponse)
+async def compose_skill(request: Request):
+    form = await request.form()
+    name = form.get("name", "").strip()
+    description = form.get("description", "").strip()
+    modules = form.getlist("modules")
+    target = form.get("target", "project")
+    custom_path = form.get("custom_path", "")
+
+    if not name:
+        return HTMLResponse('<p class="ac-error">Skill name is required.</p>')
+    if not modules:
+        return HTMLResponse('<p class="ac-error">At least one module is required.</p>')
+
+    from ansibleclaw.cli import _write_composite_skill_package
+
+    modules_metadata: list[dict] = []
+    for module_name in modules:
+        try:
+            doc, doc_meta = resolve_module_doc(module_name)
+            meta = extract_module_metadata(doc)
+            meta.update(doc_meta)
+            modules_metadata.append(meta)
+        except AnsibleDocError as exc:
+            return HTMLResponse(
+                f'<p class="ac-error">Failed to fetch docs for '
+                f"<code>{module_name}</code>: {exc}</p>"
+            )
+
+    if not description:
+        description = f"Composite skill combining {len(modules)} Ansible modules"
+
+    from ansibleclaw.cli import _sanitize_skill_dir_name
+    skill_dir_name = _sanitize_skill_dir_name(name)
+
+    if target == "project":
+        output_dir = SKILLS_DIR / skill_dir_name
+    elif target in INSTALL_PATHS:
+        output_dir = INSTALL_PATHS[target] / skill_dir_name
+    elif target == "custom" and custom_path:
+        output_dir = Path(custom_path) / skill_dir_name
+    else:
+        return HTMLResponse('<p class="ac-error">Invalid target</p>')
+
+    try:
+        _write_composite_skill_package(output_dir, name, description, modules_metadata)
+    except Exception as exc:
+        return HTMLResponse(f'<p class="ac-error">Generation failed: {exc}</p>')
+
+    download_link = ""
+    if target == "project":
+        download_link = (
+            f' &mdash; <a href="/skills/{skill_dir_name}/download">Download ZIP</a>'
+        )
+
+    return HTMLResponse(
+        f'<p class="ac-success">Composite skill generated: '
+        f"<code>{output_dir}</code>"
+        f" ({len(modules)} modules, SKILL.md, scripts/, assets/){download_link}</p>"
     )
 
 
@@ -745,13 +922,57 @@ def _aap_ping_cached(*, force: bool = False) -> bool:
     return ok
 
 
+def _aap_ping_cached_nonblocking() -> bool | None:
+    """Read-only cache lookup.  Returns ``None`` when the cache is cold
+    (never blocks on a real ping).  The caller should treat ``None`` as
+    "status unknown — fetch asynchronously".
+    """
+    if not _aap_is_configured():
+        return False
+    key = _aap_ping_cache_key()
+    now = time.monotonic()
+    if (
+        _aap_ping_singleton is not None
+        and _aap_ping_singleton[0] == key
+        and now < _aap_ping_singleton[1]
+    ):
+        return _aap_ping_singleton[2]
+    return None
+
+
+def _aap_ping_background() -> None:
+    """Run the (blocking) AAP ping and store the result in cache.
+
+    Meant to be called from a daemon thread so the event loop is never
+    blocked.
+    """
+    try:
+        _aap_ping_cached(force=True)
+    except Exception:
+        pass
+
+
+@app.on_event("startup")
+async def _warm_aap_ping_cache() -> None:
+    """Fire-and-forget AAP ping in a background thread so the first
+    page load is never blocked."""
+    if _aap_is_configured():
+        t = threading.Thread(target=_aap_ping_background, daemon=True)
+        t.start()
+
+
 @app.middleware("http")
 async def inject_aap_status(request: Request, call_next):
-    """Make AAP status available to all templates via request.state."""
+    """Make AAP status available to all templates via request.state.
+
+    Uses a *non-blocking* cache read so the event loop is never stalled
+    by a synchronous HTTP ping.  When the cache is cold the template
+    renders an HTMX placeholder that fetches the real status lazily.
+    """
     request.state.aap_configured = _aap_is_configured()
-    request.state.aap_connected = (
-        _aap_ping_cached() if request.state.aap_configured else False
-    )
+    cached = _aap_ping_cached_nonblocking() if request.state.aap_configured else False
+    request.state.aap_connected = cached if cached is not None else False
+    request.state.aap_status_unknown = cached is None and request.state.aap_configured
     return await call_next(request)
 
 
@@ -773,13 +994,42 @@ def _patched_template_response(request_or_name, name_or_ctx=None, context=None, 
     aap_connected = (
         getattr(request.state, "aap_connected", False) if request else False
     )
+    aap_status_unknown = (
+        getattr(request.state, "aap_status_unknown", False) if request else False
+    )
     ctx.setdefault("aap_configured", aap_configured)
     ctx.setdefault("aap_connected", aap_connected)
+    ctx.setdefault("aap_status_unknown", aap_status_unknown)
 
     return _orig_template_response(request, template_name, ctx, **kwargs)
 
 
 TEMPLATES.TemplateResponse = _patched_template_response
+
+
+@app.get("/aap/nav-status", response_class=HTMLResponse)
+async def aap_nav_status():
+    """Tiny HTMX fragment returning the AAP dot indicator for the nav bar.
+
+    Runs the (potentially slow) ping in a thread so the event loop stays
+    responsive, then returns the appropriate dot HTML.
+    """
+    configured = _aap_is_configured()
+    if not configured:
+        return HTMLResponse("")
+
+    loop = asyncio.get_running_loop()
+    connected = await loop.run_in_executor(None, lambda: _aap_ping_cached(force=False))
+
+    if connected:
+        return HTMLResponse(
+            '<span class="ac-aap-dot ac-aap-dot--connected" '
+            'title="AAP Connected">&#9679;</span>'
+        )
+    return HTMLResponse(
+        '<span class="ac-aap-dot ac-aap-dot--configured" '
+        'title="AAP Configured (not verified)">&#9679;</span>'
+    )
 
 
 @app.get("/aap", response_class=HTMLResponse)
@@ -792,7 +1042,6 @@ async def aap_page(request: Request):
         "aap_settings": settings,
         "aap_sources": sources,
         "aap_configured": configured,
-        # aap_connected comes from middleware + template patch (same cached ping)
     })
 
 
@@ -826,7 +1075,12 @@ async def aap_save_settings(
     _invalidate_aap_client()
 
     configured = _aap_is_configured()
-    connected = _aap_ping_cached(force=True) if configured else False
+    loop = asyncio.get_running_loop()
+    connected = (
+        await loop.run_in_executor(None, lambda: _aap_ping_cached(force=True))
+        if configured
+        else False
+    )
 
     if configured and connected:
         msg = '<span class="ac-success">\u2713 Settings saved. Connection successful.</span>'

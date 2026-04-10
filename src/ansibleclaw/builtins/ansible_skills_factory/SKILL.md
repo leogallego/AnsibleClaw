@@ -110,9 +110,98 @@ Generated skills have an **Execution Mode** section at the top that directs you 
 The `scripts/aap_run.py` helper uses only Python stdlib (`urllib` + `json`) -- no extra pip install needed. Subcommands: `adhoc`, `launch`, `create-jt`, `status`.
 See the `ansible_aap_guide` skill for full AAP setup instructions.
 
+## Composing Multi-Module Skills
+
+When a task requires **multiple modules** working together, use `ansibleclaw compose` to generate a **single unified skill** with a combined playbook, shared scripts, and documentation for all modules.
+
+### When to compose (vs. generating individually)
+
+Compose when:
+
+- The task requires **multiple modules in sequence** (e.g., install package, copy config, start service)
+- Modules come from **different collections** but serve one workflow
+- You want a **single playbook** the agent can customize and run
+
+Generate individually when:
+
+- You need a standalone reference for one module
+- The modules are unrelated
+
+### Compose from the command line
+
+```bash
+ansibleclaw compose --name "web-server-setup" \
+  --modules ansible.builtin.package,ansible.builtin.template,ansible.builtin.service,ansible.posix.firewalld \
+  --description "Deploy and configure a web server with firewall rules"
+```
+
+Output: `skills/ansible_web_server_setup/` with a multi-task playbook covering all four modules.
+
+### Install directly into an AI agent
+
+```bash
+ansibleclaw compose --name "docker-stack" \
+  --modules community.docker.docker_network,community.docker.docker_volume,community.docker.docker_container \
+  --install cursor
+```
+
+### Compose from a recipe file
+
+Create a `recipe.yml`:
+
+```yaml
+name: web-server-setup
+description: Deploy and configure Nginx with firewall rules
+modules:
+  - name: ansible.builtin.package
+    vars:
+      name: nginx
+      state: present
+  - name: ansible.builtin.template
+    vars:
+      src: templates/nginx.conf.j2
+      dest: /etc/nginx/nginx.conf
+  - name: ansible.builtin.service
+    vars:
+      name: nginx
+      state: started
+      enabled: true
+```
+
+Then generate:
+
+```bash
+ansibleclaw compose -f recipe.yml
+```
+
+When `vars` are provided in the recipe, the generated playbook pre-fills those values instead of placeholders.
+
+### What gets generated (composite)
+
+```
+skills/ansible_web_server_setup/
+  SKILL.md              # Dual-mode docs for all modules combined
+  scripts/
+    run.sh              # Playbook runner (ansible-playbook wrapper)
+    check.sh            # Validates all modules and collections
+    publish_playbook.sh # AAP Project push
+    aap_run.py          # AAP helper (Job Template oriented, no ad-hoc)
+  assets/
+    playbook.yml        # Multi-task playbook with all modules
+    requirements.yml    # Union of all collection dependencies
+```
+
+### The compose workflow
+
+1. **Identify** the modules needed for the task (use `ansible_search` skill or `ansibleclaw search`)
+2. **Compose**: `ansibleclaw compose --name "my-workflow" --modules mod1,mod2,mod3`
+3. **Read**: Open the generated SKILL.md and follow the Execution Mode section
+4. **Customize**: Edit `assets/playbook.yml` to fill in site-specific values
+5. **Execute**: Use `scripts/run.sh` (CLI) or `scripts/aap_run.py` (AAP)
+
 ## Batch Generation
 
-Generate multiple skills at once:
+Generate multiple individual skills at once:
 
 ```bash
 for module in community.general.redis community.docker.docker_container community.mysql.mysql_db; do
