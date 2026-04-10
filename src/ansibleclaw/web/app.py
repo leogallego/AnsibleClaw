@@ -6,7 +6,9 @@ skill generation with preview, and ZIP download.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
+import threading
 import time
 from pathlib import Path
 
@@ -380,6 +382,50 @@ async def compose_page(request: Request):
         "page": "compose",
         "platforms": list(INSTALL_PATHS.keys()),
     })
+
+
+@app.get("/api/compose/resolve-module")
+async def compose_resolve_module(name: str = ""):
+    """Validate a fully-qualified module name via ``ansible-doc``.
+
+    Requires a full FQCN (``namespace.collection.module``).  Returns
+    JSON ``{"valid": true, "fqcn": "..."}`` on success or
+    ``{"valid": false, "error": "..."}`` on failure.
+    """
+    from fastapi.responses import JSONResponse
+
+    name = name.strip()
+    if not name:
+        return JSONResponse({"valid": False, "error": "Module name is required."})
+
+    parts = name.split(".")
+    if len(parts) < 3:
+        return JSONResponse({
+            "valid": False,
+            "error": f"'{name}' is not a fully-qualified name. "
+                     f"Use the full FQCN, e.g. ansible.builtin.package.",
+        })
+
+    def _validate(module: str) -> bool:
+        doc = get_module_doc(module)
+        if not doc:
+            return False
+        fqcn = next(iter(doc), None)
+        return (
+            fqcn is not None
+            and fqcn == module
+            and "doc" in doc.get(fqcn, {})
+        )
+
+    loop = asyncio.get_running_loop()
+    try:
+        valid = await loop.run_in_executor(None, lambda: _validate(name))
+    except AnsibleDocError:
+        valid = False
+
+    if valid:
+        return JSONResponse({"valid": True, "fqcn": name})
+    return JSONResponse({"valid": False, "error": f"Module '{name}' not found."})
 
 
 @app.get("/compose/preview", response_class=HTMLResponse)
@@ -853,13 +899,57 @@ def _aap_ping_cached(*, force: bool = False) -> bool:
     return ok
 
 
+def _aap_ping_cached_nonblocking() -> bool | None:
+    """Read-only cache lookup.  Returns ``None`` when the cache is cold
+    (never blocks on a real ping).  The caller should treat ``None`` as
+    "status unknown — fetch asynchronously".
+    """
+    if not _aap_is_configured():
+        return False
+    key = _aap_ping_cache_key()
+    now = time.monotonic()
+    if (
+        _aap_ping_singleton is not None
+        and _aap_ping_singleton[0] == key
+        and now < _aap_ping_singleton[1]
+    ):
+        return _aap_ping_singleton[2]
+    return None
+
+
+def _aap_ping_background() -> None:
+    """Run the (blocking) AAP ping and store the result in cache.
+
+    Meant to be called from a daemon thread so the event loop is never
+    blocked.
+    """
+    try:
+        _aap_ping_cached(force=True)
+    except Exception:
+        pass
+
+
+@app.on_event("startup")
+async def _warm_aap_ping_cache() -> None:
+    """Fire-and-forget AAP ping in a background thread so the first
+    page load is never blocked."""
+    if _aap_is_configured():
+        t = threading.Thread(target=_aap_ping_background, daemon=True)
+        t.start()
+
+
 @app.middleware("http")
 async def inject_aap_status(request: Request, call_next):
-    """Make AAP status available to all templates via request.state."""
+    """Make AAP status available to all templates via request.state.
+
+    Uses a *non-blocking* cache read so the event loop is never stalled
+    by a synchronous HTTP ping.  When the cache is cold the template
+    renders an HTMX placeholder that fetches the real status lazily.
+    """
     request.state.aap_configured = _aap_is_configured()
-    request.state.aap_connected = (
-        _aap_ping_cached() if request.state.aap_configured else False
-    )
+    cached = _aap_ping_cached_nonblocking() if request.state.aap_configured else False
+    request.state.aap_connected = cached if cached is not None else False
+    request.state.aap_status_unknown = cached is None and request.state.aap_configured
     return await call_next(request)
 
 
@@ -881,13 +971,42 @@ def _patched_template_response(request_or_name, name_or_ctx=None, context=None, 
     aap_connected = (
         getattr(request.state, "aap_connected", False) if request else False
     )
+    aap_status_unknown = (
+        getattr(request.state, "aap_status_unknown", False) if request else False
+    )
     ctx.setdefault("aap_configured", aap_configured)
     ctx.setdefault("aap_connected", aap_connected)
+    ctx.setdefault("aap_status_unknown", aap_status_unknown)
 
     return _orig_template_response(request, template_name, ctx, **kwargs)
 
 
 TEMPLATES.TemplateResponse = _patched_template_response
+
+
+@app.get("/aap/nav-status", response_class=HTMLResponse)
+async def aap_nav_status():
+    """Tiny HTMX fragment returning the AAP dot indicator for the nav bar.
+
+    Runs the (potentially slow) ping in a thread so the event loop stays
+    responsive, then returns the appropriate dot HTML.
+    """
+    configured = _aap_is_configured()
+    if not configured:
+        return HTMLResponse("")
+
+    loop = asyncio.get_running_loop()
+    connected = await loop.run_in_executor(None, lambda: _aap_ping_cached(force=False))
+
+    if connected:
+        return HTMLResponse(
+            '<span class="ac-aap-dot ac-aap-dot--connected" '
+            'title="AAP Connected">&#9679;</span>'
+        )
+    return HTMLResponse(
+        '<span class="ac-aap-dot ac-aap-dot--configured" '
+        'title="AAP Configured (not verified)">&#9679;</span>'
+    )
 
 
 @app.get("/aap", response_class=HTMLResponse)
@@ -900,7 +1019,6 @@ async def aap_page(request: Request):
         "aap_settings": settings,
         "aap_sources": sources,
         "aap_configured": configured,
-        # aap_connected comes from middleware + template patch (same cached ping)
     })
 
 
@@ -934,7 +1052,12 @@ async def aap_save_settings(
     _invalidate_aap_client()
 
     configured = _aap_is_configured()
-    connected = _aap_ping_cached(force=True) if configured else False
+    loop = asyncio.get_running_loop()
+    connected = (
+        await loop.run_in_executor(None, lambda: _aap_ping_cached(force=True))
+        if configured
+        else False
+    )
 
     if configured and connected:
         msg = '<span class="ac-success">\u2713 Settings saved. Connection successful.</span>'

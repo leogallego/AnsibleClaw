@@ -52,11 +52,12 @@
                                        placeholder="e.g., ansible.builtin.package"
                                        onkeydown="if(event.key==='Enter'){event.preventDefault();addModule();}">
                             </span>
-                            <button type="button" class="pf-v6-c-button pf-m-secondary" onclick="addModule()">
+                            <button type="button" id="module-add-btn" class="pf-v6-c-button pf-m-secondary" onclick="addModule()">
                                 Add Module
                             </button>
                         </div>
-                        <span class="pf-v6-c-form__helper-text">Add modules in the order they should execute. Modules are referenced by their FQCN.</span>
+                        <div id="module-add-error" style="margin-top:0.25rem;"></div>
+                        <span class="pf-v6-c-form__helper-text">Add modules in the order they should execute. Use fully-qualified names (e.g. ansible.builtin.package).</span>
                     </div>
 
                     <div class="pf-v6-c-form__group" role="group" aria-labelledby="compose-target-legend">
@@ -114,25 +115,99 @@
 </div>
 
 <script>
-var moduleCount = 0;
+var dragSrc = null;
+
+function _moduleItem(fqcn) {
+    var item = document.createElement('div');
+    item.className = 'ac-module-item';
+    item.draggable = true;
+    item.style.cssText = 'display:flex;align-items:center;gap:0.35rem;margin-bottom:0.35rem;padding:0.35rem 0.5rem;border-radius:var(--pf-t--global--border--radius--small);background:var(--pf-t--global--background--color--secondary--default);';
+    item.innerHTML =
+        '<input type="hidden" name="modules" value="' + fqcn + '">' +
+        '<span class="ac-drag-handle" style="cursor:grab;opacity:0.5;user-select:none;" title="Drag to reorder">&#9776;</span>' +
+        '<code style="flex:1;">' + fqcn + '</code>' +
+        '<span class="ac-success" style="font-size:0.85em;" title="Module found">&#10003;</span>' +
+        '<button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" onclick="moveModule(this.parentElement,-1)" title="Move up">&uarr;</button>' +
+        '<button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" onclick="moveModule(this.parentElement,1)" title="Move down">&darr;</button>' +
+        '<button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" onclick="this.parentElement.remove();" title="Remove">&times;</button>';
+    item.addEventListener('dragstart', onDragStart);
+    item.addEventListener('dragover', onDragOver);
+    item.addEventListener('drop', onDrop);
+    item.addEventListener('dragend', onDragEnd);
+    return item;
+}
 
 function addModule() {
     var input = document.getElementById('module-add-input');
+    var btn = document.getElementById('module-add-btn');
+    var errDiv = document.getElementById('module-add-error');
     var value = input.value.trim();
     if (!value) return;
 
-    moduleCount++;
-    var list = document.getElementById('module-list');
-    var item = document.createElement('div');
-    item.id = 'module-item-' + moduleCount;
-    item.style.cssText = 'display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;padding:0.35rem 0.5rem;border-radius:var(--pf-t--global--border--radius--small);background:var(--pf-t--global--background--color--secondary--default);';
-    item.innerHTML =
-        '<input type="hidden" name="modules" value="' + value + '">' +
-        '<code style="flex:1;">' + value + '</code>' +
-        '<button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" onclick="this.parentElement.remove();" title="Remove">&times;</button>';
-    list.appendChild(item);
-    input.value = '';
-    input.focus();
+    btn.disabled = true;
+    btn.textContent = 'Checking\u2026';
+    errDiv.innerHTML = '';
+
+    fetch('/api/compose/resolve-module?name=' + encodeURIComponent(value))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.valid) {
+                var existing = document.querySelectorAll('input[name="modules"]');
+                for (var i = 0; i < existing.length; i++) {
+                    if (existing[i].value === data.fqcn) {
+                        errDiv.innerHTML = '<small class="ac-warning">\u26a0 <code>' + data.fqcn + '</code> is already in the list.</small>';
+                        return;
+                    }
+                }
+                document.getElementById('module-list').appendChild(_moduleItem(data.fqcn));
+                input.value = '';
+            } else {
+                errDiv.innerHTML = '<small class="ac-error">\u2717 ' + data.error + '</small>';
+            }
+        })
+        .catch(function() {
+            errDiv.innerHTML = '<small class="ac-error">\u2717 Validation request failed.</small>';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.textContent = 'Add Module';
+            input.focus();
+        });
+}
+
+function moveModule(el, dir) {
+    var list = el.parentElement;
+    if (dir === -1 && el.previousElementSibling) {
+        list.insertBefore(el, el.previousElementSibling);
+    } else if (dir === 1 && el.nextElementSibling) {
+        list.insertBefore(el.nextElementSibling, el);
+    }
+}
+
+function onDragStart(e) {
+    dragSrc = this;
+    this.style.opacity = '0.4';
+    e.dataTransfer.effectAllowed = 'move';
+}
+function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var target = e.currentTarget;
+    if (target !== dragSrc && target.classList.contains('ac-module-item')) {
+        var rect = target.getBoundingClientRect();
+        var mid = rect.top + rect.height / 2;
+        var list = target.parentElement;
+        if (e.clientY < mid) {
+            list.insertBefore(dragSrc, target);
+        } else {
+            list.insertBefore(dragSrc, target.nextSibling);
+        }
+    }
+}
+function onDrop(e) { e.preventDefault(); }
+function onDragEnd() {
+    dragSrc.style.opacity = '1';
+    dragSrc = null;
 }
 
 function previewComposite() {

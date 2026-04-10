@@ -67,12 +67,19 @@ def get_module_doc(module_name: str) -> dict[str, Any]:
 
     Returns the parsed JSON from `ansible-doc <module> --json`.
     The top-level dict is keyed by the fully-qualified module name.
+
+    Raises :class:`AnsibleDocError` when the module cannot be found or
+    when ``ansible-doc`` returns empty/invalid output.
     """
     raw = _run_ansible_doc(module_name, "--json")
     try:
         doc = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise AnsibleDocError(f"Failed to parse ansible-doc JSON: {exc}")
+    if not doc:
+        raise AnsibleDocError(
+            f"Module '{module_name}' not found (ansible-doc returned empty output)."
+        )
     return doc
 
 
@@ -209,11 +216,12 @@ def resolve_module_doc(
     ``{"doc_source": "local"|"galaxy"}`` plus optional ``doc_version``
     and ``doc_warning`` when Galaxy was used.
     """
+    local_err: AnsibleDocError | None = None
     try:
         doc = get_module_doc(module_name)
         return doc, {"doc_source": "local"}
-    except AnsibleDocError as local_err:
-        pass
+    except AnsibleDocError as exc:
+        local_err = exc
 
     if auto_install:
         collection_fqcn = _extract_collection_fqcn(module_name)
