@@ -384,6 +384,28 @@ async def compose_page(request: Request):
     })
 
 
+@app.get("/api/compose/modules")
+async def compose_list_modules():
+    """Return all available modules for the autocomplete picker.
+
+    Runs ``ansible-doc --list --json`` in a thread to avoid blocking the
+    event loop.  The result is a flat list of ``{fqcn, description}`` objects.
+    """
+    from fastapi.responses import JSONResponse
+
+    loop = asyncio.get_running_loop()
+    try:
+        modules = await loop.run_in_executor(None, lambda: list_modules())
+    except AnsibleDocError as exc:
+        return JSONResponse({"modules": [], "error": str(exc)})
+
+    items = [
+        {"fqcn": fqcn, "description": desc or ""}
+        for fqcn, desc in sorted(modules.items())
+    ]
+    return JSONResponse({"modules": items})
+
+
 @app.get("/api/compose/resolve-module")
 async def compose_resolve_module(name: str = ""):
     """Validate a fully-qualified module name via ``ansible-doc``.
