@@ -30,6 +30,19 @@ from ansibleclaw.core.parser import (
 )
 
 
+def _sanitize_skill_dir_name(name: str) -> str:
+    """Sanitize a user-provided name into a safe directory name.
+
+    Lowercases, replaces non-alphanumeric runs with underscores, strips
+    leading/trailing underscores, and prepends ``ansible_``.
+    """
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    if not slug:
+        slug = "unnamed"
+    return f"ansible_{slug}"
+
+
 def _module_to_skill_name(module_name: str) -> str:
     """Convert a module FQCN to a skill directory name.
 
@@ -534,7 +547,7 @@ def cmd_compose(args: argparse.Namespace) -> None:
     if not description:
         description = f"Composite skill combining {len(module_entries)} Ansible modules"
 
-    skill_dir_name = f"ansible_{name.replace('-', '_')}"
+    skill_dir_name = _sanitize_skill_dir_name(name)
 
     print(f"Composing skill '{name}' from {len(module_entries)} module(s)...")
     modules_metadata: list[dict] = []

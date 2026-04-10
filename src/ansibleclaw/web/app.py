@@ -496,7 +496,8 @@ async def compose_skill(request: Request):
     if not description:
         description = f"Composite skill combining {len(modules)} Ansible modules"
 
-    skill_dir_name = f"ansible_{name.replace('-', '_')}"
+    from ansibleclaw.cli import _sanitize_skill_dir_name
+    skill_dir_name = _sanitize_skill_dir_name(name)
 
     if target == "project":
         output_dir = SKILLS_DIR / skill_dir_name
