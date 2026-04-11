@@ -12,15 +12,19 @@ AnsibleClaw bridges Ansible's 3000+ modules to AI agents (Cursor, Claude Code, G
 
 ## Web Dashboard
 
-Start with `ansibleclaw ui` and open `http://localhost:8600`.
+Start with `ansibleclaw ui` and open `http://localhost:8600`. The dashboard features a collapsible left sidebar organized into five sections.
 
 ![AnsibleClaw Web Dashboard](docs/AnsibleClaw-ui.png)
 
-**Skills Library** (`/skills`) -- View all skills (built-in + generated), click to read SKILL.md content, download as ZIP, delete generated skills, or install/uninstall to Cursor, Claude, or Gemini CLI with one click.
+**Explore** -- Browse available Ansible **Modules** (`/search`) by keyword and namespace, view parameters and examples inline, and jump to the generator. Manage installed **Collections** (`/collections`) with one-click install, uninstall, and batch skill generation.
 
-**Module Search** (`/search`) -- Search Ansible modules by keyword and namespace. View module parameters and examples inline. Jump to the generator from any result.
+**Build** -- **Generate** (`/generate`) single-module skill packages with live SKILL.md preview and multi-target output (project, Cursor, Claude, Gemini, custom path). **Compose** (`/compose`) multi-module composite skill packages that combine several Ansible modules into a single use-case-driven skill.
 
-**Skill Generator** (`/generate`) -- Enter a module name, preview the generated SKILL.md in real time, choose a target (project / Cursor / Claude / Gemini / custom path), and generate a full skill package. Download as ZIP from the success message.
+**Skills** -- View all skills (`/skills`) (built-in + generated), read SKILL.md content, download as ZIP, install/uninstall to Cursor, Claude, or Gemini CLI with one click, and deploy to AAP.
+
+**Deploy** -- **Dev/Test** (`/inventory`) for local inventory management. **Production** (`/aap`) for AAP Controller integration: dashboard with project and job template status, connection testing, and deep links to AAP UI.
+
+**Agents** -- **Gemini CLI** (`/agents/gemini`) launches an interactive browser-based terminal running Google's Gemini CLI agent via ttyd, with configurable working directory and session management.
 
 ## Installation
 
@@ -67,10 +71,10 @@ ansibleclaw ui
 
 ## How It Works
 
-1. **Search** -- Find the right Ansible module with `ansibleclaw search` or the `ansible_search` skill
-2. **Generate** -- Convert a module into a full skill package with `ansibleclaw generate`
+1. **Explore** -- Find the right Ansible module with `ansibleclaw search`, the web dashboard's Modules page, or the `ansible_search` skill
+2. **Build** -- Generate a single-module skill with `ansibleclaw generate` or compose a multi-module skill from the Compose page
 3. **Use** -- The AI agent reads the SKILL.md and runs standard `ansible` CLI commands or AAP flows via `scripts/aap_run.py` when configured
-4. **Distribute** -- Download as ZIP from the web dashboard or use `--zip` on the CLI
+4. **Deploy** -- Deploy to AAP (Production), test locally (Dev/Test), or distribute as ZIP. Run AI agents like Gemini CLI directly from the dashboard
 
 Generated skills are portable: copy them into `~/.cursor/skills/`, `~/.claude/skills/`, `~/.gemini/skills/`, or any agent's skill directory. ZIP packages can be uploaded directly to Claude.ai or shared via agentskill.sh. CLI mode needs `ansible-core` where Ansible runs; AAP mode needs Controller URL and token plus Python 3 for the helper script.
 
@@ -261,11 +265,12 @@ AAP-related defaults can also be stored in `.ansibleclaw.yml` (under `aap:`); en
 ```
 AnsibleClaw/
 ├── src/ansibleclaw/           # Python package (pip install ansible-claw)
-│   ├── cli.py                 # CLI: generate / search / uninstall / ui
+│   ├── cli.py                 # CLI: generate / search / uninstall / compose / ui
 │   ├── config.py              # Configuration + paths
 │   ├── core/
 │   │   ├── parser.py          # ansible-doc scraping + extraction
-│   │   └── packager.py        # ZIP packaging for skill distribution
+│   │   ├── packager.py        # ZIP packaging for skill distribution
+│   │   └── aap.py             # AAP Controller client (REST API)
 │   ├── builtins/              # Built-in skills (shipped in wheel)
 │   │   ├── ansible_manager/   # General-purpose Ansible executor (CLI + AAP)
 │   │   ├── ansible_search/    # Module discovery via ansible-doc
@@ -277,10 +282,10 @@ AnsibleClaw/
 │   │   ├── check.sh.j2        # Prerequisite checker template (CLI + AAP)
 │   │   ├── aap_run.py.j2      # AAP Controller API helper template
 │   │   └── playbook.yml.j2    # Ansible playbook template
-│   └── web/                   # Optional web dashboard (FastAPI + HTMX)
-│       ├── app.py             # Routes (including ZIP download)
-│       ├── templates/         # Jinja2 HTML templates (Pico CSS)
-│       └── static/            # CSS (dark/light themes)
+│   └── web/                   # Web dashboard (FastAPI + HTMX + PatternFly v6)
+│       ├── app.py             # Routes, AAP dashboard, Gemini CLI terminal
+│       ├── templates/         # Jinja2 HTML (sidebar layout, per-page views)
+│       └── static/            # CSS (dark/light themes, sidebar, terminal)
 ├── skills/                    # Generated skills (user output, CWD-based)
 ├── tests/                     # Test suite
 ├── docs/                      # Documentation

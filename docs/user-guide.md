@@ -14,11 +14,14 @@ This guide covers everything you need to install, configure, and use AnsibleClaw
   - [ansibleclaw search](#ansibleclaw-search)
   - [ansibleclaw ui](#ansibleclaw-ui)
 - [Web Dashboard](#web-dashboard)
-  - [Skills Library](#skills-library)
-  - [Module Search](#module-search)
-  - [Skill Generator](#skill-generator)
-  - [Collections Manager](#collections-manager)
-  - [AAP Settings](#aap-settings)
+  - [Explore: Modules](#explore-modules)
+  - [Explore: Collections](#explore-collections)
+  - [Build: Generate](#build-generate)
+  - [Build: Compose](#build-compose)
+  - [Skills](#skills)
+  - [Deploy: Dev/Test](#deploy-devtest)
+  - [Deploy: Production (AAP)](#deploy-production-aap)
+  - [Agents: Gemini CLI](#agents-gemini-cli)
 - [Built-In Skills](#built-in-skills)
 - [Generated Skill Package](#generated-skill-package)
 - [Inventory Setup](#inventory-setup)
@@ -74,7 +77,7 @@ pip install "ansible-claw[ui]"
 pip install -e ".[ui]"
 ```
 
-This adds `fastapi`, `uvicorn`, and `python-multipart` for the web UI.
+This adds `fastapi`, `uvicorn`, `python-multipart`, and `websockets` for the web UI.
 
 ### Install with development tools
 
@@ -325,28 +328,11 @@ Requires `pip install "ansible-claw[ui]"`. If FastAPI is not available, you'll s
 
 The web dashboard provides a graphical interface for all AnsibleClaw operations. Start it with `ansibleclaw ui` and open `http://localhost:8600` in your browser.
 
-The dashboard has five pages accessible from the navigation bar.
+The dashboard features a collapsible left sidebar (styled with PatternFly v6) organized into five sections: **Explore**, **Build**, **Skills**, **Deploy**, and **Agents**. Dark and light themes are available via the toggle in the top masthead.
 
-### Skills Library
+### Explore: Modules
 
-**URL:** `/skills`
-
-This is the home page. It shows all skills (built-in + generated) in a table with:
-
-- **Name** -- Click to view the full SKILL.md content
-- **Description** -- Short summary from the YAML frontmatter
-- **Type** -- `built-in` (ships with AnsibleClaw) or `generated` (created by the factory)
-- **Actions:**
-  - **Download** -- Download the skill as a ZIP archive
-  - **Install** -- Copy a skill to Cursor, Claude Code, or Gemini CLI’s skill directory with one click
-  - **Uninstall** -- Remove the skill copy from Cursor, Claude, or Gemini CLI (project `skills/` unchanged)
-  - **Delete** -- Remove a generated skill (built-in skills cannot be deleted)
-
-Clicking a skill name opens the detail view showing the SKILL.md content. From the detail page, you can also **Deploy to AAP** (see [AAP Integration](#deploying-skills-to-aap-via-the-web-dashboard)).
-
-### Module Search
-
-**URL:** `/search`
+**URL:** `/search` | **Sidebar:** Explore > Modules
 
 Search for Ansible modules interactively:
 
@@ -359,11 +345,26 @@ Results appear in a table without a page reload (powered by HTMX). For each modu
 - Click **Details** to expand the module's parameters and examples inline
 - Click **Generate Skill** to jump to the generator page pre-filled with that module name
 
-### Skill Generator
+### Explore: Collections
 
-**URL:** `/generate`
+**URL:** `/collections` | **Sidebar:** Explore > Collections
 
-Generate new skills through the browser:
+Manage your installed Ansible collections:
+
+- View all installed collections with version numbers and module counts
+- Click a collection name to see all its modules, with links to generate skills or view details
+- **Install** a new collection by name (and optional version) directly from Galaxy
+- **Uninstall** collections you no longer need
+- **Generate Skills** -- batch-generate skill packages for selected modules in a collection
+- **Generate Collection Overview** -- create a single overview skill that summarizes all modules in a collection
+
+From a collection's detail page, you can also **Deploy to AAP** to create Job Templates for every generated module skill in the collection.
+
+### Build: Generate
+
+**URL:** `/generate` | **Sidebar:** Build > Generate
+
+Generate new single-module skills through the browser:
 
 1. Enter the **module name** (e.g., `community.general.redis`)
 2. Select a **target**:
@@ -379,31 +380,69 @@ The preview pane shows the rendered SKILL.md in real time without writing any fi
 
 After generation, a **Download ZIP** link appears for project-target skills.
 
-### Collections Manager
+### Build: Compose
 
-**URL:** `/collections`
+**URL:** `/compose` | **Sidebar:** Build > Compose
 
-Manage your installed Ansible collections:
+Compose multi-module composite skill packages that combine several Ansible modules into a single use-case-driven skill:
 
-- View all installed collections with version numbers and module counts
-- Click a collection name to see all its modules, with links to generate skills or view details
-- **Install** a new collection by name (and optional version) directly from Galaxy
-- **Uninstall** collections you no longer need
-- **Generate Skills** -- batch-generate skill packages for selected modules in a collection
-- **Generate Collection Overview** -- create a single overview skill that summarizes all modules in a collection
+1. Enter a **Skill Name** and optional **Description**
+2. Add modules using the autocomplete picker (search or type a FQCN)
+3. Select a **target** (Project, Cursor, Claude, Gemini, or custom path)
+4. Click **Preview** to inspect the composite SKILL.md before writing
+5. Click **Compose** to generate the full composite skill package
 
-From a collection's detail page, you can also **Deploy to AAP** to create Job Templates for every generated module skill in the collection.
+Composite skills are ideal for multi-step workflows (e.g., "deploy and configure a web server" combining `ansible.builtin.package`, `ansible.builtin.template`, `ansible.builtin.service`, and `ansible.builtin.firewalld`).
 
-### AAP Settings
+### Skills
 
-**URL:** `/aap`
+**URL:** `/skills` | **Sidebar:** Skills > Skills
 
-View and test your AAP Controller connection:
+This is the home page. It shows all skills (built-in + generated) in a table with:
+
+- **Name** -- Click to view the full SKILL.md content
+- **Description** -- Short summary from the YAML frontmatter
+- **Type** -- `built-in` (ships with AnsibleClaw) or `generated` (created by the factory)
+- **Actions:**
+  - **Download** -- Download the skill as a ZIP archive
+  - **Install** -- Copy a skill to Cursor, Claude Code, or Gemini CLI’s skill directory with one click
+  - **Uninstall** -- Remove the skill copy from Cursor, Claude, or Gemini CLI (project `skills/` unchanged)
+  - **Delete** -- Remove a generated skill (built-in skills cannot be deleted)
+
+Clicking a skill name opens the detail view showing the SKILL.md content. From the detail page, you can also **Deploy to AAP** (see [AAP Integration](#deploying-skills-to-aap-via-the-web-dashboard)).
+
+### Deploy: Dev/Test
+
+**URL:** `/inventory` | **Sidebar:** Deploy > Dev/Test
+
+Manage your local Ansible inventory for development and testing. View and edit host groups, set connection variables, and verify inventory structure before deploying to production.
+
+### Deploy: Production (AAP)
+
+**URL:** `/aap` | **Sidebar:** Deploy > Production
+
+Interactive AAP Controller dashboard:
 
 - **Connection status** -- shows connected, configured (but untested), or not configured
-- **Environment variables** -- shows which AAP variables are set
-- **Test Connectivity** -- pings the controller's `/api/v2/ping/` endpoint
+- **Resource summary** -- cards showing counts of projects, job templates, inventories, execution environments, and credentials
+- **Projects table** -- lists AAP projects with deep links to the AAP Controller UI
+- **Job Templates table** -- lists templates with deep links to launch or view in AAP
+- **Sync button** -- manually refresh dashboard data from the AAP Controller
+- **Test Connectivity** -- pings the controller's `/api/v2/ping/` endpoint with streaming results
 - **Setup instructions** -- if not configured, shows the required environment variables
+
+### Agents: Gemini CLI
+
+**URL:** `/agents/gemini` | **Sidebar:** Agents > Gemini CLI
+
+Launch an interactive browser-based terminal running Google's Gemini CLI agent:
+
+- **Prerequisites check** -- automatically detects if `ttyd` and `gemini` are installed, with install instructions if missing
+- **Working directory** -- specify the directory where the Gemini agent operates
+- **Session management** -- Launch, Stop, and Clear buttons for controlling the terminal session
+- **Persistent sessions** -- navigating away and returning reconnects to the running Gemini session (output history is not preserved, but the process stays alive)
+
+Requires `ttyd` (`brew install ttyd`) and the [Gemini CLI](https://github.com/google-gemini/gemini-cli) to be installed on the host.
 
 ---
 
@@ -553,8 +592,8 @@ For a **single picture** of how configuration, generation, **Deploy to AAP**, an
 
 **Summary of that journey:**
 
-1. **Configure AAP as production runtime** -- Set `AAP_CONTROLLER_URL`, `AAP_CONTROLLER_TOKEN`, and optional defaults (environment variables, `.ansibleclaw.yml`, and test from the dashboard **AAP** page). Skill generation can embed Controller defaults; tokens are never written into packages.
-2. **Select a module or collection** -- Use **Search**, **Collections**, or the CLI. **Install the collection** if it is missing (Collections manager, `ansible-galaxy`, or `ansibleclaw generate --auto-install`).
+1. **Configure AAP as production runtime** -- Set `AAP_CONTROLLER_URL`, `AAP_CONTROLLER_TOKEN`, and optional defaults (environment variables, `.ansibleclaw.yml`, and test from the dashboard's **Deploy > Production** page). Skill generation can embed Controller defaults; tokens are never written into packages.
+2. **Select a module or collection** -- Use **Explore > Modules**, **Explore > Collections**, or the CLI. **Install the collection** if it is missing (Collections page, `ansible-galaxy`, or `ansibleclaw generate --auto-install`).
 3. **Generate skills** -- Web **Generate**, `ansibleclaw generate` (including `--collection`), or an AI using the **`ansible_skills_factory`** built-in skill.
 4. **Choose how production work is triggered:**
    - **Human admin** -- Use **Deploy to AAP** on a skill or collection detail page: push to the Project’s Git SCM, sync, and create a **Job Template**. AnsibleClaw does **not** launch jobs; the playbook path is project-relative and is **not** re-checked against the Controller after sync.
@@ -584,7 +623,7 @@ ansible webservers -m community.docker.docker_container \
 ### Workflow 2: Search, Generate, Install (Web UI)
 
 1. Run `ansibleclaw ui`
-2. Go to **Search** -- search for "docker container"
+2. Go to **Explore > Modules** -- search for "docker container"
 3. Click **Details** on `community.docker.docker_container` to see parameters inline
 4. Click **Generate Skill** -- jumps to the Generator with the module name pre-filled
 5. Click **Preview** to inspect the SKILL.md before writing any files
@@ -636,7 +675,7 @@ ansibleclaw generate --collection community.docker --modules "docker_container,d
 
 Or from the web dashboard:
 
-1. Go to **Collections** (`/collections`)
+1. Go to **Explore > Collections** (`/collections`)
 2. Click a collection name to see its modules
 3. Select the modules you want and click **Generate Skills**
 4. Optionally click **Generate Collection Overview** for a summary skill
@@ -701,7 +740,7 @@ Create a Job Template in AAP directly from the web dashboard:
 
 Deploy Job Templates for every generated module in a collection:
 
-1. Go to **Collections** and click a collection name
+1. Go to **Explore > Collections** and click a collection name
 2. Scroll to the **Deploy to AAP** card
 3. Select Project, EE, Inventory, and Credential
 4. Click **Deploy Collection to AAP**
@@ -952,7 +991,7 @@ ansibleclaw generate "<namespace.collection.module>"
 | Inventory not found | List inventories to find the correct name/ID |
 | Job stays in `pending` | AAP may lack capacity -- check instance groups |
 
-Test connectivity from the web dashboard at `/aap` or from the command line:
+Test connectivity from the web dashboard at **Deploy > Production** (`/aap`) or from the command line:
 
 ```bash
 curl -s -H "Authorization: Bearer ${AAP_CONTROLLER_TOKEN}" \
