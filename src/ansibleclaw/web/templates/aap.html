@@ -1,55 +1,169 @@
 {% extends "base.html" %}
-{% block title_suffix %} - AAP Configuration{% endblock %}
+{% block title_suffix %} - AAP{% endblock %}
 
 {% block content %}
 <div class="ac-page-header">
     <h2>Ansible Automation Platform (AAP)</h2>
-    <p>Configure and test your AAP Controller connection</p>
+    <p>Dashboard, resources, and controller settings</p>
 </div>
 
-{# --- Controller connection: status + streamed test --- #}
-<div class="pf-v6-c-card" style="margin-bottom:1rem;" id="aap-connection-card">
-    <div class="pf-v6-c-card__header">
-        <h3 class="pf-v6-c-card__header-main" style="margin:0;">Controller connection</h3>
-    </div>
-    <div class="pf-v6-c-card__body">
-        <div style="margin-bottom:1rem;padding:0.75rem 1rem;border-radius:var(--pf-t--global--border--radius--small);background:var(--pf-t--global--background--color--secondary--default);border-left:4px solid var(--pf-t--global--color--brand--default);">
-            <p style="margin:0 0 0.25rem;font-weight:600;">
+{# --- Connection status bar --- #}
+<div class="pf-v6-c-card" style="margin-bottom:1.5rem;">
+    <div class="pf-v6-c-card__body" style="padding:1rem 1.25rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
+            <div style="display:flex;align-items:center;gap:0.75rem;">
                 {% if aap_connected %}
-                &#9989; AAP Controller connected
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:50%;background:color-mix(in srgb, var(--pf-t--global--color--status--success--default) 15%, transparent);">
+                    <span style="color:var(--pf-t--global--color--status--success--default);font-size:1rem;">&#9679;</span>
+                </span>
+                <div>
+                    <div style="font-weight:600;font-size:1rem;">Connected</div>
+                    <div style="color:var(--pf-t--global--text--color--subtle);font-size:0.8125rem;">{{ aap_settings.url }}</div>
+                </div>
                 {% elif aap_configured %}
-                Connection check
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:50%;background:color-mix(in srgb, var(--pf-t--global--color--status--warning--default) 15%, transparent);">
+                    <span style="color:var(--pf-t--global--color--status--warning--default);font-size:1rem;">&#9679;</span>
+                </span>
+                <div>
+                    <div style="font-weight:600;font-size:1rem;">Configured</div>
+                    <div style="color:var(--pf-t--global--text--color--subtle);font-size:0.8125rem;">{{ aap_settings.url }} &mdash; not verified</div>
+                </div>
                 {% else %}
-                Not configured
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:50%;background:var(--pf-t--global--background--color--secondary--default);">
+                    <span style="color:var(--pf-t--global--text--color--subtle);font-size:1rem;">&#9675;</span>
+                </span>
+                <div>
+                    <div style="font-weight:600;font-size:1rem;">Not configured</div>
+                    <div style="color:var(--pf-t--global--text--color--subtle);font-size:0.8125rem;">Set Controller URL and token below to get started</div>
+                </div>
                 {% endif %}
-            </p>
-            <p style="margin:0;font-size:0.875rem;color:var(--pf-t--global--text--color--subtle);">
-                {% if aap_connected %}
-                Reachability is based on your last test or cached check. Use <strong>Test connection</strong> below to run a live probe (same step-by-step output as Deploy to AAP).
-                {% elif aap_configured %}
-                URL and token are saved. Click <strong>Test connection</strong> to stream each probe step below.
-                {% else %}
-                Enter Controller URL and token under <strong>Controller Settings</strong> to enable testing.
-                {% endif %}
-            </p>
+            </div>
+            {% if aap_configured %}
+            <div style="display:flex;gap:0.75rem;align-items:center;">
+                <a href="{{ aap_settings.url }}" target="_blank" class="pf-v6-c-button pf-m-secondary">Open AAP Console &nearr;</a>
+                <button type="button" id="btn-aap-test-connection" class="pf-v6-c-button pf-m-tertiary">Test connection</button>
+            </div>
+            {% endif %}
         </div>
-        {% if aap_configured %}
-        <div style="display:flex;gap:0.5rem;align-items:center;">
-            <button type="button" id="btn-aap-test-connection" class="pf-v6-c-button pf-m-secondary">
-                Test connection
-            </button>
-        </div>
-        {% endif %}
-        <div id="aap-ping-result" class="ac-aap-stream-result"></div>
     </div>
 </div>
 
-{# --- Settings Form Card --- #}
-<div class="pf-v6-c-card" style="margin-bottom:1rem;">
-    <div class="pf-v6-c-card__title">
-        <h3 class="pf-v6-c-card__title-text">Controller Settings</h3>
+{# --- Ping result (separate card, hidden until triggered) --- #}
+<div id="aap-ping-card" class="pf-v6-c-card" style="margin-bottom:1.5rem;display:none;">
+    <div class="pf-v6-c-card__header" style="display:flex;align-items:center;justify-content:space-between;">
+        <h3 class="pf-v6-c-card__header-main" style="margin:0;">Connection Test</h3>
+        <button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" onclick="document.getElementById('aap-ping-card').style.display='none';" title="Dismiss">&times;</button>
     </div>
     <div class="pf-v6-c-card__body">
+        <div id="aap-ping-result" class="ac-aap-stream-result" style="max-height:12rem;overflow-y:auto;"></div>
+    </div>
+</div>
+
+{% if aap_configured %}
+{# --- Resource summary cards --- #}
+<div id="aap-dashboard-section">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+        <button type="button" class="pf-v6-c-button pf-m-primary" id="btn-sync-dashboard" onclick="syncDashboard(this)">
+            <span class="ac-sync-icon" style="display:inline-block;margin-right:0.4rem;font-size:0.9em;">&#x21bb;</span> Sync project
+        </button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1rem;margin-bottom:1.5rem;" id="aap-summary-cards">
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__body" style="text-align:center;padding:1.5rem 1rem;">
+                <div style="font-size:2.5rem;font-weight:700;line-height:1;" id="dash-project-count">&mdash;</div>
+                <div style="font-size:0.875rem;color:var(--pf-t--global--text--color--subtle);margin-top:0.5rem;">Projects</div>
+            </div>
+        </div>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__body" style="text-align:center;padding:1.5rem 1rem;">
+                <div style="font-size:2.5rem;font-weight:700;line-height:1;" id="dash-jt-count">&mdash;</div>
+                <div style="font-size:0.875rem;color:var(--pf-t--global--text--color--subtle);margin-top:0.5rem;">Job Templates</div>
+            </div>
+        </div>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__body" style="text-align:center;padding:1.5rem 1rem;">
+                <div style="font-size:2.5rem;font-weight:700;line-height:1;" id="dash-inv-count">&mdash;</div>
+                <div style="font-size:0.875rem;color:var(--pf-t--global--text--color--subtle);margin-top:0.5rem;">Inventories</div>
+            </div>
+        </div>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__body" style="text-align:center;padding:1.5rem 1rem;">
+                <div style="font-size:2.5rem;font-weight:700;line-height:1;" id="dash-ee-count">&mdash;</div>
+                <div style="font-size:0.875rem;color:var(--pf-t--global--text--color--subtle);margin-top:0.5rem;">Execution Environments</div>
+            </div>
+        </div>
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__body" style="text-align:center;padding:1.5rem 1rem;">
+                <div style="font-size:2.5rem;font-weight:700;line-height:1;" id="dash-cred-count">&mdash;</div>
+                <div style="font-size:0.875rem;color:var(--pf-t--global--text--color--subtle);margin-top:0.5rem;">Credentials</div>
+            </div>
+        </div>
+    </div>
+
+    {# --- Two-column layout for tables --- #}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.5rem;">
+
+        {# --- Projects table --- #}
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__header" style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;">
+                <h3 class="pf-v6-c-card__header-main" style="margin:0;font-size:1.05rem;">Projects</h3>
+                <span id="dash-project-status" style="font-size:0.8125rem;color:var(--pf-t--global--text--color--subtle);">Loading&hellip;</span>
+            </div>
+            <div class="pf-v6-c-card__body" style="padding:0;">
+                <div style="overflow-x:auto;">
+                    <table class="pf-v6-c-table pf-m-grid-md" role="grid" style="font-size:0.875rem;">
+                        <thead><tr>
+                            <th style="padding:0.75rem 1.25rem;">Name</th>
+                            <th style="padding:0.75rem 1rem;width:1%;"></th>
+                        </tr></thead>
+                        <tbody id="dash-projects-body">
+                            <tr><td colspan="2" style="text-align:center;padding:2rem 1rem;color:var(--pf-t--global--text--color--subtle);">Loading&hellip;</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        {# --- Job Templates table --- #}
+        <div class="pf-v6-c-card">
+            <div class="pf-v6-c-card__header" style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;">
+                <h3 class="pf-v6-c-card__header-main" style="margin:0;font-size:1.05rem;">Job Templates</h3>
+                <span id="dash-jt-status" style="font-size:0.8125rem;color:var(--pf-t--global--text--color--subtle);">Loading&hellip;</span>
+            </div>
+            <div class="pf-v6-c-card__body" style="padding:0;">
+                <div style="padding:0.625rem 1.25rem;border-bottom:1px solid var(--pf-t--global--border--color--default);">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;color:var(--pf-t--global--text--color--subtle);">
+                        <input type="checkbox" id="dash-jt-claw-only"> Show only AnsibleClaw templates
+                    </label>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="pf-v6-c-table pf-m-grid-md" role="grid" style="font-size:0.875rem;">
+                        <thead><tr>
+                            <th style="padding:0.75rem 1.25rem;">Name</th>
+                            <th style="padding:0.75rem 1rem;">Project</th>
+                            <th style="padding:0.75rem 1rem;width:1%;"></th>
+                        </tr></thead>
+                        <tbody id="dash-jt-body">
+                            <tr><td colspan="3" style="text-align:center;padding:2rem 1rem;color:var(--pf-t--global--text--color--subtle);">Loading&hellip;</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endif %}
+
+{# --- Settings Form Card (collapsible) --- #}
+<div class="pf-v6-c-card" style="margin-bottom:1.5rem;">
+    <div class="pf-v6-c-card__header" style="cursor:pointer;padding:1rem 1.25rem;" onclick="var b=document.getElementById('settings-body');var a=document.getElementById('settings-arrow');if(b.style.display==='none'){b.style.display='';a.textContent='\u25BC';}else{b.style.display='none';a.textContent='\u25B6';}">
+        <h3 class="pf-v6-c-card__header-main" style="margin:0;display:flex;align-items:center;gap:0.5rem;font-size:1.05rem;">
+            <span id="settings-arrow" style="font-size:0.75rem;">{% if aap_configured %}&#9654;{% else %}&#9660;{% endif %}</span>
+            Controller Settings
+        </h3>
+    </div>
+    <div class="pf-v6-c-card__body" id="settings-body" {% if aap_configured %}style="display:none;"{% endif %}>
         <form id="aap-settings-form"
               hx-post="/aap/settings"
               hx-target="#aap-settings-result"
@@ -118,7 +232,7 @@
                 Defaults (optional)
             </p>
 
-            {# Default Project -- first, drives the rest #}
+            {# Default Project #}
             <div class="pf-v6-c-form__group" style="margin-bottom:0.5rem;">
                 <label class="pf-v6-c-form__label" for="aap-default-project">
                     <span class="pf-v6-c-form__label-text">Default Project</span>
@@ -140,7 +254,7 @@
                 <span id="aap-defaults-status" style="font-size:0.8125rem;"></span>
             </div>
 
-            {# Git Repo URL (read-only, derived from selected project) #}
+            {# Git Repo URL #}
             <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;" id="git-repo-group">
                 <label class="pf-v6-c-form__label">
                     <span class="pf-v6-c-form__label-text">Git Repo URL</span>
@@ -217,7 +331,7 @@
                 </span>
             </div>
 
-            {# Job Template name prefix (Deploy to AAP) #}
+            {# Job Template name prefix #}
             <div class="pf-v6-c-form__group" style="margin-bottom:0.75rem;">
                 <label class="pf-v6-c-form__label" for="aap-jt-prefix">
                     <span class="pf-v6-c-form__label-text">Job Template name prefix</span>
@@ -258,12 +372,14 @@
 
 <script>
 /* ------------------------------------------------------------------ */
-/* Streamed AAP connectivity test (fetch + incremental HTML)         */
+/* Streamed AAP connectivity test                                     */
 /* ------------------------------------------------------------------ */
 function runAapPingStream() {
+    var card = document.getElementById('aap-ping-card');
     var resultDiv = document.getElementById('aap-ping-result');
     var btn = document.getElementById('btn-aap-test-connection');
     if (!resultDiv || !btn) return;
+    card.style.display = '';
     resultDiv.innerHTML = '';
     btn.disabled = true;
 
@@ -293,6 +409,136 @@ function runAapPingStream() {
 (function() {
     var tbtn = document.getElementById('btn-aap-test-connection');
     if (tbtn) tbtn.addEventListener('click', runAapPingStream);
+})();
+
+/* ------------------------------------------------------------------ */
+/* Dashboard: resource summary, projects table, JT table              */
+/* ------------------------------------------------------------------ */
+var _dashJTs = [];
+
+function _escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function _statusBadge(status) {
+    var colors = {
+        successful: 'var(--pf-t--global--color--status--success--default)',
+        failed: 'var(--pf-t--global--color--status--danger--default)',
+        error: 'var(--pf-t--global--color--status--danger--default)',
+        pending: 'var(--pf-t--global--color--status--info--default)',
+        running: 'var(--pf-t--global--color--status--info--default)',
+        never_updated: 'var(--pf-t--global--text--color--subtle)',
+    };
+    var c = colors[status] || 'var(--pf-t--global--text--color--subtle)';
+    var label = (status || 'unknown').replace(/_/g, ' ');
+    return '<span style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.875rem;">'
+         + '<span style="color:' + c + ';font-size:0.65rem;">&#9679;</span> ' + label + '</span>';
+}
+
+function renderProjectsTable(projects) {
+    var body = document.getElementById('dash-projects-body');
+    var status = document.getElementById('dash-project-status');
+    if (!body) return;
+    if (projects.length === 0) {
+        body.innerHTML = '<tr><td colspan="2" style="text-align:center;padding:2.5rem 1rem;color:var(--pf-t--global--text--color--subtle);">No projects found</td></tr>';
+        status.textContent = '0 projects';
+        return;
+    }
+    status.textContent = projects.length + ' project' + (projects.length !== 1 ? 's' : '');
+    var html = '';
+    for (var i = 0; i < projects.length; i++) {
+        var p = projects[i];
+        var scm = p.scm_url
+            ? '<div style="font-size:0.8em;color:var(--pf-t--global--text--color--subtle);margin-top:0.15rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:22rem;"><code>' + _escHtml(p.scm_url) + '</code></div>'
+            : '';
+        html += '<tr>'
+             +  '<td style="padding:0.75rem 1.25rem;"><strong>' + _escHtml(p.name) + '</strong>' + scm + '</td>'
+             +  '<td style="padding:0.75rem 1rem;"><a href="' + _escHtml(p.url) + '" target="_blank" class="pf-v6-c-button pf-m-link pf-m-small pf-m-inline" style="white-space:nowrap;">Open&nbsp;&nearr;</a></td>'
+             +  '</tr>';
+    }
+    body.innerHTML = html;
+}
+
+function renderJTTable(jts, clawOnly) {
+    var body = document.getElementById('dash-jt-body');
+    var status = document.getElementById('dash-jt-status');
+    if (!body) return;
+
+    var filtered = clawOnly ? jts.filter(function(j) { return j.is_claw; }) : jts;
+    var clawCount = jts.filter(function(j) { return j.is_claw; }).length;
+    status.textContent = filtered.length + ' of ' + jts.length + ' template' + (jts.length !== 1 ? 's' : '')
+                       + (clawCount ? ' (' + clawCount + ' by AnsibleClaw)' : '');
+
+    if (filtered.length === 0) {
+        body.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:2.5rem 1rem;color:var(--pf-t--global--text--color--subtle);">'
+                       + (clawOnly ? 'No AnsibleClaw templates found' : 'No job templates found')
+                       + '</td></tr>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < filtered.length; i++) {
+        var jt = filtered[i];
+        var badge = jt.is_claw
+            ? ' <span style="background:var(--pf-t--global--color--brand--default);color:#fff;font-size:0.7em;padding:0.15em 0.5em;border-radius:0.25rem;vertical-align:middle;margin-left:0.35rem;">Claw</span>'
+            : '';
+        html += '<tr>'
+             +  '<td style="padding:0.75rem 1.25rem;"><strong>' + _escHtml(jt.name) + '</strong>' + badge + '</td>'
+             +  '<td style="padding:0.75rem 1rem;color:var(--pf-t--global--text--color--subtle);">' + _escHtml(jt.project_name || '\u2014') + '</td>'
+             +  '<td style="padding:0.75rem 1rem;"><a href="' + _escHtml(jt.url) + '" target="_blank" class="pf-v6-c-button pf-m-link pf-m-small pf-m-inline" style="white-space:nowrap;">Open&nbsp;&nearr;</a></td>'
+             +  '</tr>';
+    }
+    body.innerHTML = html;
+}
+
+function loadDashboard(callback) {
+    fetch('/api/aap/dashboard')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                document.getElementById('dash-project-status').innerHTML = '<span class="ac-error">' + data.error + '</span>';
+                if (callback) callback();
+                return;
+            }
+            document.getElementById('dash-project-count').textContent = (data.projects || []).length;
+            document.getElementById('dash-jt-count').textContent = (data.job_templates || []).length;
+            document.getElementById('dash-inv-count').textContent = data.inventory_count || 0;
+            document.getElementById('dash-ee-count').textContent = data.ee_count || 0;
+            document.getElementById('dash-cred-count').textContent = data.credential_count || 0;
+
+            renderProjectsTable(data.projects || []);
+
+            _dashJTs = data.job_templates || [];
+            var cb = document.getElementById('dash-jt-claw-only');
+            renderJTTable(_dashJTs, cb && cb.checked);
+            if (callback) callback();
+        })
+        .catch(function() {
+            var s = document.getElementById('dash-project-status');
+            if (s) s.innerHTML = '<span class="ac-error">Failed to load dashboard</span>';
+            if (callback) callback();
+        });
+}
+
+function syncDashboard(btn) {
+    if (btn) btn.disabled = true;
+    var icon = btn ? btn.querySelector('.ac-sync-icon') : null;
+    if (icon) icon.style.animation = 'ac-spin 0.8s linear infinite';
+    loadDashboard(function() {
+        if (btn) btn.disabled = false;
+        if (icon) icon.style.animation = '';
+    });
+}
+
+(function() {
+    var section = document.getElementById('aap-dashboard-section');
+    if (section) loadDashboard();
+
+    var cb = document.getElementById('dash-jt-claw-only');
+    if (cb) cb.addEventListener('change', function() {
+        renderJTTable(_dashJTs, cb.checked);
+    });
 })();
 
 /* ------------------------------------------------------------------ */
@@ -384,8 +630,6 @@ function refreshFromAAP() {
             }
             populateSelect('aap-default-project', data.items || [], '');
             clearDependentFields();
-            /* Repopulate org/inventory/credential/EE when the same project stays
-               selected: programmatic <select> updates do not fire "change". */
             var projSel = document.getElementById('aap-default-project');
             if (projSel && projSel.value) {
                 var opt = projSel.options[projSel.selectedIndex];

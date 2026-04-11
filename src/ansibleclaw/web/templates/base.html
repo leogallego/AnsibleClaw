@@ -21,44 +21,74 @@
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
 <body>
-    <div class="pf-v6-c-page">
-        <header class="ac-masthead" id="page-masthead">
+    <div class="ac-layout">
+        <header class="ac-masthead">
+            <button class="ac-sidebar__toggle" id="sidebar-toggle" type="button" title="Toggle sidebar">
+                <span class="ac-sidebar__toggle-bars">
+                    <span></span><span></span><span></span>
+                </span>
+            </button>
             <a href="/skills" class="ac-masthead__brand">
                 <img src="/static/logo.png" alt="AnsibleClaw" class="ac-nav-logo">
                 <span class="ac-brand-text">AnsibleClaw</span>
             </a>
-            <nav class="pf-v6-c-nav pf-m-horizontal" aria-label="Global">
-                <ul class="pf-v6-c-nav__list">
-                    <li class="pf-v6-c-nav__item">
-                        <a href="/skills" class="pf-v6-c-nav__link{% if page == 'skills' %} pf-m-current{% endif %}" {% if page == "skills" %}aria-current="page"{% endif %}>Skills</a>
-                    </li>
-                    <li class="pf-v6-c-nav__item">
-                        <a href="/collections" class="pf-v6-c-nav__link{% if page == 'collections' %} pf-m-current{% endif %}" {% if page == "collections" %}aria-current="page"{% endif %}>Collections</a>
-                    </li>
-                    <li class="pf-v6-c-nav__item">
-                        <a href="/search" class="pf-v6-c-nav__link{% if page == 'search' %} pf-m-current{% endif %}" {% if page == "search" %}aria-current="page"{% endif %}>Search</a>
-                    </li>
-                    <li class="pf-v6-c-nav__item">
-                        <a href="/generate" class="pf-v6-c-nav__link{% if page == 'generate' %} pf-m-current{% endif %}" {% if page == "generate" %}aria-current="page"{% endif %}>Generate</a>
-                    </li>
-                    <li class="pf-v6-c-nav__item">
-                        <a href="/compose" class="pf-v6-c-nav__link{% if page == 'compose' %} pf-m-current{% endif %}" {% if page == "compose" %}aria-current="page"{% endif %}>Compose</a>
-                    </li>
-                    <li class="pf-v6-c-nav__item">
-                        <a href="/inventory" class="pf-v6-c-nav__link{% if page == 'inventory' %} pf-m-current{% endif %}" {% if page == "inventory" %}aria-current="page"{% endif %}>Inventory</a>
-                    </li>
-                    <li class="pf-v6-c-nav__item">
-                        <a href="/aap" class="pf-v6-c-nav__link{% if page == 'aap' %} pf-m-current{% endif %}" {% if page == "aap" %}aria-current="page"{% endif %}>AAP {% if aap_connected %}<span class="ac-aap-dot ac-aap-dot--connected" title="AAP Connected">&#9679;</span>{% elif aap_status_unknown %}<span hx-get="/aap/nav-status" hx-trigger="load" hx-swap="outerHTML"></span>{% elif aap_configured %}<span class="ac-aap-dot ac-aap-dot--configured" title="AAP Configured (not verified)">&#9679;</span>{% endif %}</a>
-                    </li>
-                </ul>
-            </nav>
+            <span class="ac-masthead__tagline">A Skills compiler factory that anchor Ansible Automation Platform in Agentic AIOps - A Real <span class="ac-masthead__claw">Claw</span> for Enterprise</span>
             <button id="theme-toggle" class="pf-v6-c-button pf-m-plain ac-theme-toggle" type="button" title="Toggle theme">
                 <span class="theme-icon"></span>
                 <span class="theme-label"></span>
             </button>
         </header>
 
-        <main class="pf-v6-c-page__main" id="main-content">
+        <aside class="ac-sidebar" id="ac-sidebar">
+            <nav class="ac-sidebar__nav" aria-label="Global">
+                <div class="ac-sidebar__section">
+                    <div class="ac-sidebar__heading">Explore</div>
+                    <a href="/search" class="ac-sidebar__link{% if page == 'search' %} ac-sidebar__link--active{% endif %}" {% if page == 'search' %}aria-current="page"{% endif %}>
+                        <span class="ac-sidebar__label">Modules</span>
+                    </a>
+                    <a href="/collections" class="ac-sidebar__link{% if page == 'collections' %} ac-sidebar__link--active{% endif %}" {% if page == 'collections' %}aria-current="page"{% endif %}>
+                        <span class="ac-sidebar__label">Collections</span>
+                    </a>
+                </div>
+
+                <div class="ac-sidebar__section">
+                    <div class="ac-sidebar__heading">Build</div>
+                    <a href="/generate" class="ac-sidebar__link{% if page == 'generate' %} ac-sidebar__link--active{% endif %}" {% if page == 'generate' %}aria-current="page"{% endif %}>
+                        <span class="ac-sidebar__label">Generate</span>
+                    </a>
+                    <a href="/compose" class="ac-sidebar__link{% if page == 'compose' %} ac-sidebar__link--active{% endif %}" {% if page == 'compose' %}aria-current="page"{% endif %}>
+                        <span class="ac-sidebar__label">Compose</span>
+                    </a>
+                </div>
+
+                <div class="ac-sidebar__section">
+                    <div class="ac-sidebar__heading">Skills</div>
+                    <a href="/skills" class="ac-sidebar__link{% if page == 'skills' %} ac-sidebar__link--active{% endif %}" {% if page == 'skills' %}aria-current="page"{% endif %}>
+                        <span class="ac-sidebar__label">Skills</span>
+                    </a>
+                </div>
+
+                <div class="ac-sidebar__section">
+                    <div class="ac-sidebar__heading">Deploy</div>
+                    <a href="/inventory" class="ac-sidebar__link{% if page == 'inventory' %} ac-sidebar__link--active{% endif %}" {% if page == 'inventory' %}aria-current="page"{% endif %}>
+                        <span class="ac-sidebar__label">Dev/Test</span>
+                    </a>
+                    <a href="/aap" class="ac-sidebar__link{% if page == 'aap' %} ac-sidebar__link--active{% endif %}" {% if page == 'aap' %}aria-current="page"{% endif %}>
+                        <span class="ac-sidebar__label">Production</span>
+                        {% if aap_connected %}<span class="ac-aap-dot ac-aap-dot--connected" title="AAP Connected">&#9679;</span>{% elif aap_status_unknown %}<span hx-get="/aap/nav-status" hx-trigger="load" hx-swap="outerHTML"></span>{% elif aap_configured %}<span class="ac-aap-dot ac-aap-dot--configured" title="AAP Configured (not verified)">&#9679;</span>{% endif %}
+                    </a>
+                </div>
+
+                <div class="ac-sidebar__section">
+                    <div class="ac-sidebar__heading">Agents</div>
+                    <a href="/agents/gemini" class="ac-sidebar__link{% if page == 'agents-gemini' %} ac-sidebar__link--active{% endif %}" {% if page == 'agents-gemini' %}aria-current="page"{% endif %}>
+                        <span class="ac-sidebar__label">Gemini CLI</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="ac-main" id="main-content">
             <section class="pf-v6-c-page__main-section">
                 {% block content %}{% endblock %}
             </section>
@@ -103,6 +133,36 @@
 
         applyUI();
         btn.addEventListener('click', toggle);
+    })();
+
+    (function() {
+        var layout = document.querySelector('.ac-layout');
+        var toggleBtn = document.getElementById('sidebar-toggle');
+        var key = 'ansibleclaw-sidebar';
+
+        function isCollapsed() {
+            return layout.classList.contains('ac-layout--sidebar-hidden');
+        }
+
+        function collapse() {
+            layout.classList.add('ac-layout--sidebar-hidden');
+            toggleBtn.title = 'Show sidebar';
+            localStorage.setItem(key, 'collapsed');
+        }
+
+        function expand() {
+            layout.classList.remove('ac-layout--sidebar-hidden');
+            toggleBtn.title = 'Hide sidebar';
+            localStorage.setItem(key, 'expanded');
+        }
+
+        if (localStorage.getItem(key) === 'collapsed') {
+            collapse();
+        }
+
+        toggleBtn.addEventListener('click', function() {
+            if (isCollapsed()) { expand(); } else { collapse(); }
+        });
     })();
     </script>
 </body>

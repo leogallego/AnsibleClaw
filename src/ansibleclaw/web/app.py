@@ -7,14 +7,19 @@ skill generation with preview, and ZIP download.
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 import shutil
+import socket
+import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import Optional
 
 import yaml
-from fastapi import FastAPI, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import FastAPI, Form, Query, Request, WebSocket
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -1032,6 +1037,73 @@ async def aap_nav_status():
     )
 
 
+@app.get("/api/aap/dashboard")
+async def api_aap_dashboard():
+    """Aggregated data for the AAP dashboard: resource counts, JT list, UI URLs."""
+    import concurrent.futures
+
+    try:
+        client = _get_aap_client()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    def _count(method):
+        try:
+            return len(method())
+        except Exception:
+            return 0
+
+    def _jt_list():
+        try:
+            raw = client.list_job_templates()
+            prefix = (AAPSettings.get("job_template_prefix") or "").strip().lower()
+            items = []
+            for jt in raw:
+                items.append({
+                    "id": jt["id"],
+                    "name": jt.get("name", ""),
+                    "project_name": jt.get("summary_fields", {}).get("project", {}).get("name", ""),
+                    "status": jt.get("status", ""),
+                    "url": client.ui_url("job_template", jt["id"]),
+                    "is_claw": bool(prefix and jt.get("name", "").lower().startswith(prefix)),
+                })
+            return items
+        except Exception:
+            return []
+
+    def _project_list():
+        try:
+            raw = client.list_projects()
+            return [
+                {
+                    "id": p["id"],
+                    "name": p.get("name", ""),
+                    "scm_url": p.get("scm_url", ""),
+                    "status": p.get("status", ""),
+                    "url": client.ui_url("project", p["id"]),
+                }
+                for p in raw
+            ]
+        except Exception:
+            return []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        fut_jts = pool.submit(_jt_list)
+        fut_projs = pool.submit(_project_list)
+        fut_inv = pool.submit(_count, client.list_inventories)
+        fut_ee = pool.submit(_count, client.list_execution_environments)
+        fut_cred = pool.submit(_count, client.list_credentials)
+
+    return {
+        "job_templates": fut_jts.result(),
+        "projects": fut_projs.result(),
+        "inventory_count": fut_inv.result(),
+        "ee_count": fut_ee.result(),
+        "credential_count": fut_cred.result(),
+        "base_url": AAPSettings.get("url").rstrip("/"),
+    }
+
+
 @app.get("/aap", response_class=HTMLResponse)
 async def aap_page(request: Request):
     configured = _aap_is_configured()
@@ -1529,8 +1601,7 @@ async def api_aap_deploy_skill(
                 except AAPError:
                     yield _err("Could not attach credential (non-fatal)")
 
-            aap_url = AAPSettings.get("url")
-            jt_url = f"{aap_url}/#/templates/job_template/{template_id}/details"
+            jt_url = client.ui_url("job_template", template_id)
             collection_note = ""
             if collection_fqcn:
                 collection_note = (
@@ -1658,3 +1729,242 @@ async def api_aap_deploy_collection(
         )
 
     return StreamingResponse(steps(), media_type="text/html")
+
+
+# =====================================================================
+# Gemini CLI Agent — ttyd integration
+# =====================================================================
+
+_gemini_logger = logging.getLogger("ansibleclaw.agents.gemini")
+
+_gemini_ttyd_process: Optional[subprocess.Popen] = None
+_gemini_ttyd_port: Optional[int] = None
+
+
+def _is_ttyd_installed() -> bool:
+    return shutil.which("ttyd") is not None
+
+
+def _find_gemini_command() -> Optional[str]:
+    return shutil.which("gemini")
+
+
+def _find_available_port(start: int = 7682, attempts: int = 100) -> int:
+    for offset in range(attempts):
+        port = start + offset
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                return port
+    raise RuntimeError(f"No available port in range {start}-{start + attempts}")
+
+
+def _start_ttyd_for_gemini(cwd: str | None = None) -> dict:
+    global _gemini_ttyd_process, _gemini_ttyd_port
+
+    if _gemini_ttyd_process is not None and _gemini_ttyd_process.poll() is None:
+        return {
+            "success": True,
+            "already_running": True,
+            "port": _gemini_ttyd_port,
+            "ws_url": "/ws/gemini",
+        }
+
+    if not _is_ttyd_installed():
+        return {
+            "success": False,
+            "error": "ttyd is not installed",
+            "install_instructions": {
+                "macos": "brew install ttyd",
+                "ubuntu": "sudo apt install ttyd",
+            },
+        }
+
+    gemini_path = _find_gemini_command()
+    if not gemini_path:
+        return {"success": False, "error": "gemini CLI is not installed"}
+
+    try:
+        port = _find_available_port()
+    except RuntimeError as exc:
+        return {"success": False, "error": str(exc)}
+
+    env = os.environ.copy()
+    if "HOME" not in env:
+        env["HOME"] = os.path.expanduser("~")
+
+    work_dir = cwd or os.getcwd()
+
+    ttyd_cmd = [
+        "ttyd",
+        "--port", str(port),
+        "--interface", "127.0.0.1",
+        "--writable",
+        gemini_path,
+    ]
+
+    _gemini_logger.info("Starting ttyd: %s (cwd=%s)", " ".join(ttyd_cmd), work_dir)
+
+    try:
+        _gemini_ttyd_process = subprocess.Popen(
+            ttyd_cmd,
+            env=env,
+            cwd=work_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        _gemini_ttyd_port = port
+
+        time.sleep(1.5)
+
+        if _gemini_ttyd_process.poll() is not None:
+            exit_code = _gemini_ttyd_process.returncode
+            _, stderr_output = _gemini_ttyd_process.communicate(timeout=1)
+            stderr_str = stderr_output.decode("utf-8", errors="replace") if stderr_output else ""
+            _gemini_logger.error("ttyd exited with code %s: %s", exit_code, stderr_str)
+            _gemini_ttyd_process = None
+            _gemini_ttyd_port = None
+            return {"success": False, "error": f"ttyd exited with code {exit_code}: {stderr_str}"}
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            if sock.connect_ex(("127.0.0.1", port)) != 0:
+                _gemini_logger.error("ttyd not listening on port %s", port)
+                _gemini_ttyd_process.terminate()
+                _gemini_ttyd_process = None
+                _gemini_ttyd_port = None
+                return {"success": False, "error": f"ttyd not listening on port {port}"}
+
+        _gemini_logger.info("ttyd started on port %s, pid %s", port, _gemini_ttyd_process.pid)
+        return {
+            "success": True,
+            "already_running": False,
+            "port": port,
+            "ws_url": "/ws/gemini",
+            "pid": _gemini_ttyd_process.pid,
+        }
+    except Exception as exc:
+        _gemini_logger.error("Failed to start ttyd: %s", exc)
+        return {"success": False, "error": str(exc)}
+
+
+def _stop_gemini_ttyd() -> dict:
+    global _gemini_ttyd_process, _gemini_ttyd_port
+
+    if _gemini_ttyd_process is None:
+        return {"success": True, "message": "ttyd was not running"}
+
+    if _gemini_ttyd_process.poll() is not None:
+        _gemini_ttyd_process = None
+        _gemini_ttyd_port = None
+        return {"success": True, "message": "ttyd had already exited"}
+
+    try:
+        pid = _gemini_ttyd_process.pid
+        _gemini_ttyd_process.terminate()
+        try:
+            _gemini_ttyd_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _gemini_ttyd_process.kill()
+            _gemini_ttyd_process.wait()
+        _gemini_ttyd_process = None
+        _gemini_ttyd_port = None
+        _gemini_logger.info("ttyd stopped (pid %s)", pid)
+        return {"success": True, "message": f"ttyd stopped (pid: {pid})"}
+    except Exception as exc:
+        _gemini_logger.error("Error stopping ttyd: %s", exc)
+        return {"success": False, "error": str(exc)}
+
+
+@app.get("/api/agents/gemini/status")
+async def api_gemini_status():
+    gemini_path = _find_gemini_command()
+    return {
+        "ttyd_available": _is_ttyd_installed(),
+        "gemini_installed": gemini_path is not None,
+        "gemini_path": gemini_path,
+        "ttyd_running": (
+            _gemini_ttyd_process is not None
+            and _gemini_ttyd_process.poll() is None
+        ),
+        "ttyd_port": _gemini_ttyd_port,
+    }
+
+
+@app.post("/api/agents/gemini/start-terminal")
+async def api_gemini_start_terminal(request: Request):
+    cwd = None
+    try:
+        body = await request.json()
+        cwd = body.get("cwd")
+    except Exception:
+        pass
+    result = _start_ttyd_for_gemini(cwd=cwd)
+    return JSONResponse(result)
+
+
+@app.post("/api/agents/gemini/stop-terminal")
+async def api_gemini_stop_terminal():
+    return JSONResponse(_stop_gemini_ttyd())
+
+
+@app.websocket("/ws/gemini")
+async def ws_gemini_proxy(websocket: WebSocket):
+    await websocket.accept()
+
+    if _gemini_ttyd_port is None:
+        await websocket.close(code=1011, reason="ttyd not running")
+        return
+
+    import websockets as _ws_lib
+
+    ttyd_ws_url = f"ws://127.0.0.1:{_gemini_ttyd_port}/ws"
+
+    try:
+        async with _ws_lib.connect(
+            ttyd_ws_url,
+            subprotocols=["tty"],
+            ping_interval=None,
+            close_timeout=1,
+        ) as ttyd_ws:
+
+            async def _fwd_to_client():
+                try:
+                    async for message in ttyd_ws:
+                        if isinstance(message, bytes):
+                            await websocket.send_bytes(message)
+                        else:
+                            await websocket.send_text(message)
+                except Exception:
+                    pass
+
+            async def _fwd_to_ttyd():
+                try:
+                    while True:
+                        data = await websocket.receive()
+                        if data["type"] == "websocket.receive":
+                            if "bytes" in data:
+                                await ttyd_ws.send(data["bytes"])
+                            elif "text" in data:
+                                await ttyd_ws.send(data["text"])
+                        elif data["type"] == "websocket.disconnect":
+                            break
+                except Exception:
+                    pass
+
+            await asyncio.gather(
+                _fwd_to_client(), _fwd_to_ttyd(), return_exceptions=True
+            )
+    except Exception as exc:
+        _gemini_logger.error("Gemini ttyd proxy error: %s", exc)
+        try:
+            await websocket.close(code=1011, reason=str(exc))
+        except Exception:
+            pass
+
+
+@app.get("/agents/gemini")
+async def agents_gemini_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        request,
+        "agents_gemini.html",
+        {"page": "agents-gemini", "default_cwd": "/Users/micyang/agent"},
+    )

@@ -293,3 +293,42 @@ class AAPClient:
             f"/job_templates/{template_id}/credentials/",
             {"id": credential_id},
         )
+
+    def list_job_templates(self) -> list[dict[str, Any]]:
+        return self._list_resources("/job_templates/")
+
+    # ------------------------------------------------------------------
+    # AAP UI deep-link generation
+    # ------------------------------------------------------------------
+
+    # AAP 2.5+ gateway uses path-based UI routes; classic AWX/2.4 uses
+    # hash-based routes.  We pick the pattern based on the detected API
+    # prefix.
+    _GATEWAY_UI_PATHS: dict[str, str] = {
+        "project": "/execution/projects/{id}/details",
+        "job_template": "/execution/templates/job_template/{id}/details",
+        "inventory": "/infrastructure/inventories/{id}/details",
+        "credential": "/access/credentials/{id}/details",
+        "organization": "/access/organizations/{id}/details",
+        "execution_environment": "/infrastructure/execution-environments/{id}/details",
+        "job": "/execution/jobs/{id}/output",
+    }
+
+    _CLASSIC_UI_PATHS: dict[str, str] = {
+        "project": "/#/projects/{id}",
+        "job_template": "/#/templates/job_template/{id}/details",
+        "inventory": "/#/inventories/{id}",
+        "credential": "/#/credentials/{id}",
+        "organization": "/#/organizations/{id}",
+        "execution_environment": "/#/execution_environments/{id}",
+        "job": "/#/jobs/{id}/output",
+    }
+
+    def ui_url(self, resource_type: str, resource_id: int | str) -> str:
+        """Build a URL to a resource's page in the AAP web UI."""
+        is_gateway = self.api_prefix == "/api/controller/v2"
+        paths = self._GATEWAY_UI_PATHS if is_gateway else self._CLASSIC_UI_PATHS
+        pattern = paths.get(resource_type, "")
+        if not pattern:
+            return self._base
+        return self._base + pattern.format(id=resource_id)

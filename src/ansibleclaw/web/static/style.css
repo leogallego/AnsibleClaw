@@ -2,32 +2,50 @@
    AnsibleClaw -- PatternFly 6 Customisations
    ============================================ */
 
-/* No sidebar -- let main content fill the full width */
-.pf-v6-c-page {
-    grid-template-columns: 1fr;
-}
-
-/* Bump base font size */
 :root {
     --pf-t--global--font--size--body--default: 1rem;
-}
-
-.pf-v6-c-page__main-section {
-    max-width: 100%;
+    --ac-sidebar-width: 16rem;
+    --ac-masthead-height: 3rem;
+    --ac-sidebar-transition: width 0.2s ease, min-width 0.2s ease;
 }
 
 /* ============================================
-   Masthead -- brand + nav left, toggle right
+   Page Layout -- sidebar + masthead grid
+   ============================================ */
+
+.ac-layout {
+    display: grid;
+    grid-template-columns: var(--ac-sidebar-width) 1fr;
+    grid-template-rows: var(--ac-masthead-height) 1fr;
+    min-height: 100vh;
+}
+
+.ac-layout--sidebar-hidden {
+    grid-template-columns: 0 1fr;
+}
+
+.ac-layout--sidebar-hidden .ac-sidebar {
+    width: 0;
+    min-width: 0;
+    border-right: none;
+    overflow: hidden;
+}
+
+/* ============================================
+   Masthead -- slim top bar spanning full width
    ============================================ */
 
 .ac-masthead {
+    grid-column: 1 / -1;
+    grid-row: 1;
     display: flex;
     align-items: center;
-    gap: 1.5rem;
-    padding: 0.75rem 1.5rem;
+    gap: 1rem;
+    padding: 0 1.25rem;
+    height: var(--ac-masthead-height);
     background: var(--pf-t--global--background--color--secondary--default);
     border-bottom: 1px solid var(--pf-t--global--border--color--default);
-    grid-column: 1 / -1;
+    z-index: 10;
 }
 
 .ac-masthead__brand {
@@ -38,15 +56,6 @@
     flex-shrink: 0;
 }
 
-.ac-masthead .pf-v6-c-nav {
-    flex-shrink: 0;
-}
-
-.ac-masthead .ac-theme-toggle {
-    margin-left: auto;
-}
-
-/* Brand logo */
 .ac-nav-logo {
     height: 24px;
     width: 24px;
@@ -58,6 +67,199 @@
     font-weight: 700;
     font-size: 1.1rem;
     color: var(--pf-t--global--text--color--regular);
+}
+
+.ac-masthead__tagline {
+    font-size: 0.85rem;
+    color: var(--pf-t--global--text--color--subtle);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.ac-masthead__claw {
+    color: #ee0000;
+    font-weight: 700;
+}
+
+.ac-masthead .ac-theme-toggle {
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+/* ============================================
+   Sidebar
+   ============================================ */
+
+.ac-sidebar {
+    grid-column: 1;
+    grid-row: 2;
+    width: var(--ac-sidebar-width);
+    min-width: var(--ac-sidebar-width);
+    background: #212427;
+    border-right: 1px solid var(--pf-t--global--border--color--default);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: var(--ac-sidebar-transition);
+}
+
+html:not(.pf-v6-theme-dark) .ac-sidebar {
+    background: #f0f0f0;
+}
+
+/* Hamburger toggle in masthead */
+.ac-sidebar__toggle {
+    all: unset;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    cursor: pointer;
+    border-radius: var(--pf-t--global--border--radius--small);
+    flex-shrink: 0;
+    transition: background 0.1s ease;
+}
+
+.ac-sidebar__toggle:hover {
+    background: var(--pf-t--global--background--color--primary--default);
+}
+
+.ac-sidebar__toggle-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 3.5px;
+    width: 16px;
+    position: relative;
+    height: 14px;
+    justify-content: center;
+}
+
+.ac-sidebar__toggle-bars span {
+    display: block;
+    height: 2px;
+    width: 100%;
+    background: var(--pf-t--global--text--color--subtle);
+    border-radius: 1px;
+    transition: transform 0.2s ease, opacity 0.2s ease, background 0.1s ease;
+    transform-origin: center;
+}
+
+.ac-sidebar__toggle:hover .ac-sidebar__toggle-bars span {
+    background: var(--pf-t--global--text--color--regular);
+}
+
+/* When sidebar is hidden, morph bars into a right-pointing arrow (open hint) */
+.ac-layout--sidebar-hidden .ac-sidebar__toggle-bars span:nth-child(1) {
+    width: 10px;
+    transform: translateY(2px) rotate(40deg);
+    transform-origin: right center;
+}
+
+.ac-layout--sidebar-hidden .ac-sidebar__toggle-bars span:nth-child(2) {
+    width: 100%;
+}
+
+.ac-layout--sidebar-hidden .ac-sidebar__toggle-bars span:nth-child(3) {
+    width: 10px;
+    transform: translateY(-2px) rotate(-40deg);
+    transform-origin: right center;
+}
+
+/* Sidebar nav container */
+.ac-sidebar__nav {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.25rem 0;
+}
+
+/* Section groups — separated by subtle dividers */
+.ac-sidebar__section {
+    padding: 0.625rem 0;
+}
+
+.ac-sidebar__section + .ac-sidebar__section {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+html:not(.pf-v6-theme-dark) .ac-sidebar__section + .ac-sidebar__section {
+    border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Section headings — AAP style: regular case, readable size */
+.ac-sidebar__heading {
+    padding: 0.625rem 1.25rem 0.375rem;
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--pf-t--global--text--color--regular);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* Nav links — indented under their group heading */
+.ac-sidebar__link {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1.25rem 0.5rem 2.25rem;
+    color: var(--pf-t--global--text--color--subtle);
+    text-decoration: none;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    border-left: 3px solid transparent;
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.ac-sidebar__link:hover {
+    color: var(--pf-t--global--text--color--regular);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+html:not(.pf-v6-theme-dark) .ac-sidebar__link:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.ac-sidebar__link--active {
+    color: var(--pf-t--global--text--color--regular);
+    background: rgba(255, 255, 255, 0.1);
+    border-left-color: var(--pf-t--global--color--brand--default);
+    font-weight: 600;
+}
+
+html:not(.pf-v6-theme-dark) .ac-sidebar__link--active {
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.ac-sidebar__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* AAP dot in sidebar */
+.ac-sidebar__link .ac-aap-dot {
+    margin-left: 0.25rem;
+}
+
+/* ============================================
+   Main Content Area
+   ============================================ */
+
+.ac-main {
+    grid-column: 2;
+    grid-row: 2;
+    overflow-y: auto;
+    min-width: 0;
+    padding: 1.25rem 1.5rem 0 1.5rem;
+}
+
+.pf-v6-c-page__main-section {
+    max-width: 100%;
+}
+
+.pf-v6-l-grid > * {
+    min-width: 0;
 }
 
 /* ============================================
@@ -156,6 +358,11 @@
 
 .ac-dropdown-item:hover {
     background: var(--pf-t--global--background--color--secondary--default);
+}
+
+@keyframes ac-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
 }
 
 @keyframes ac-dropdownFadeIn {
@@ -259,11 +466,6 @@ pre.ac-code {
     word-break: break-word;
 }
 
-/* Prevent preview card from blowing out the grid */
-.pf-v6-l-grid > * {
-    min-width: 0;
-}
-
 /* ============================================
    Footer
    ============================================ */
@@ -292,9 +494,57 @@ pre.ac-code {
     margin-top: 0;
 }
 
-/* AAP: streamed deploy / connection output (same layout as Deploy to AAP) */
 .ac-aap-stream-result {
     margin-top: 1rem;
+}
+
+/* ============================================
+   Table row spacing
+   ============================================ */
+
+.ac-main table td,
+.ac-main table th {
+    padding: 0.625rem 0.75rem;
+}
+
+/* ============================================
+   Terminal (Gemini CLI / Agents)
+   ============================================ */
+
+.ac-terminal-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--ac-masthead-height) - 12rem);
+    min-height: 400px;
+}
+
+.ac-terminal-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--pf-t--global--background--color--secondary--default);
+    border: 1px solid var(--pf-t--global--border--color--default);
+    border-radius: var(--pf-t--global--border--radius--small) var(--pf-t--global--border--radius--small) 0 0;
+    border-bottom: none;
+}
+
+.ac-terminal {
+    flex: 1;
+    min-height: 500px;
+    background: #1a1a2e;
+    border: 1px solid var(--pf-t--global--border--color--default);
+    border-radius: 0 0 var(--pf-t--global--border--radius--small) var(--pf-t--global--border--radius--small);
+    overflow: hidden;
+}
+
+.ac-terminal .xterm {
+    padding: 12px;
+    height: 100%;
+}
+
+.ac-terminal .xterm-viewport {
+    scrollbar-width: thin;
 }
 
 /* ============================================
@@ -303,6 +553,10 @@ pre.ac-code {
 
 @media (max-width: 768px) {
     .ac-theme-toggle .theme-label {
+        display: none;
+    }
+
+    .ac-masthead__tagline {
         display: none;
     }
 }
