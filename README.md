@@ -10,6 +10,18 @@ AnsibleClaw bridges Ansible's 3000+ modules to AI agents (Cursor, Claude Code, G
 
 **Runtime** -- Generated skills teach agents **CLI mode** (standard `ansible` / playbook workflows; `ansible-core` on the control node) and **AAP mode** (launch ad-hoc commands and job templates via `scripts/aap_run.py` using `AAP_CONTROLLER_URL` and `AAP_CONTROLLER_TOKEN`). See [AAP Integration](#aap-integration-production-execution) below for variables and examples.
 
+## Web Dashboard
+
+Start with `ansibleclaw ui` and open `http://localhost:8600`.
+
+![AnsibleClaw Web Dashboard](docs/AnsibleClaw-ui.png)
+
+**Skills Library** (`/skills`) -- View all skills (built-in + generated), click to read SKILL.md content, download as ZIP, delete generated skills, or install/uninstall to Cursor, Claude, or Gemini CLI with one click.
+
+**Module Search** (`/search`) -- Search Ansible modules by keyword and namespace. View module parameters and examples inline. Jump to the generator from any result.
+
+**Skill Generator** (`/generate`) -- Enter a module name, preview the generated SKILL.md in real time, choose a target (project / Cursor / Claude / Gemini / custom path), and generate a full skill package. Download as ZIP from the success message.
+
 ## Installation
 
 ```bash
@@ -188,16 +200,6 @@ ansibleclaw ui [--port PORT]
 ```
 
 Starts at `http://localhost:8600` by default. Requires `pip install "ansible-claw[ui]"`.
-
-## Web Dashboard
-
-Start with `ansibleclaw ui` and open `http://localhost:8600`.
-
-**Skills Library** (`/skills`) -- View all skills (built-in + generated), click to read SKILL.md content, download as ZIP, delete generated skills, or install/uninstall to Cursor, Claude, or Gemini CLI with one click.
-
-**Module Search** (`/search`) -- Search Ansible modules by keyword and namespace. View module parameters and examples inline. Jump to the generator from any result.
-
-**Skill Generator** (`/generate`) -- Enter a module name, preview the generated SKILL.md in real time, choose a target (project / Cursor / Claude / Gemini / custom path), and generate a full skill package. Download as ZIP from the success message.
 
 ## Built-In Skills
 
