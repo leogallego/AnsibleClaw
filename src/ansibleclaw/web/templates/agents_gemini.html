@@ -33,8 +33,8 @@
     </div>
 </div>
 
-{# --- Terminal section (shown when ready) --- #}
-<div id="gemini-terminal-section" style="display:none;">
+{# --- Terminal section --- #}
+<div id="gemini-terminal-section">
     <div class="ac-terminal-wrapper">
         <div class="ac-terminal-toolbar">
             <div style="display:flex;align-items:center;gap:0.75rem;flex:1;min-width:0;">
@@ -95,21 +95,20 @@
             .then(function(data) {
                 ttydWarning.style.display = 'none';
                 notInstalled.style.display = 'none';
-                termSection.style.display = 'none';
 
                 if (!data.ttyd_available) {
+                    termSection.style.display = 'none';
                     ttydWarning.style.display = '';
                 } else if (!data.gemini_installed) {
+                    termSection.style.display = 'none';
                     notInstalled.style.display = '';
-                } else {
-                    termSection.style.display = '';
-                    if (data.ttyd_running) {
-                        setSessionActive(true);
-                        showIframe(data.ttyd_port);
-                    }
+                } else if (data.ttyd_running) {
+                    setSessionActive(true);
+                    showIframe(data.ttyd_port);
                 }
             })
             .catch(function() {
+                termSection.style.display = 'none';
                 ttydWarning.style.display = '';
             });
     }
