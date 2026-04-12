@@ -1,41 +1,596 @@
 {% extends "base.html" %}
-{% block title_suffix %} - Local Inventory{% endblock %}
+{% block title_suffix %} - Dev/Test{% endblock %}
 
 {% block content %}
 <div class="ac-page-header">
-    <h1>Local Inventory</h1>
-    <p>
-        Edit the on-disk inventory used for <strong>local / CLI</strong> runs (<code>ansible</code>, <code>ansible-playbook</code>).
-        Production execution through Ansible Automation Platform uses <strong>Controller-managed inventories</strong> instead
-        &mdash; configure those on the <a href="/aap">AAP</a> page.
-    </p>
+    <h2>Dev / Test</h2>
+    <p>Select a playbook, edit or refine it with AI, then run it with <code>ansible-playbook</code>.</p>
 </div>
 
-<div class="pf-v6-c-card">
-    <div class="pf-v6-c-card__title">
-        <h2 class="pf-v6-c-card__title-text">{{ inventory_path }}</h2>
+{# --- Section 1: Inventory Editor (collapsible) --- #}
+<div class="pf-v6-c-card" style="margin-bottom:1.25rem;">
+    <div class="pf-v6-c-card__title" style="cursor:pointer;display:flex;align-items:center;gap:0.5rem;" id="inv-toggle">
+        <button type="button" class="ac-category-group__toggle" id="inv-toggle-arrow" title="Toggle inventory editor">&#9660;</button>
+        <h3 class="pf-v6-c-card__title-text" style="margin:0;flex:1;">Inventory &mdash; <code style="font-size:0.85rem;">{{ inventory_path }}</code></h3>
     </div>
-    <div class="pf-v6-c-card__body">
+    <div id="inv-body" class="pf-v6-c-card__body">
         {% if save_ok %}
         <p class="ac-success">{{ save_ok }}</p>
         {% endif %}
         {% if save_error %}
         <p class="ac-error">{{ save_error }}</p>
         {% endif %}
-        <p><small>Override the file path with environment variable <code>ANSIBLECLAW_INVENTORY_FILE</code>.</small></p>
         <form method="post" action="/inventory" class="pf-v6-c-form">
             <div class="pf-v6-c-form__group">
-                <label class="pf-v6-c-form__label" for="inventory-content">
-                    <span class="pf-v6-c-form__label-text">YAML content</span>
-                </label>
                 <span class="pf-v6-c-form-control">
-                    <textarea id="inventory-content" name="content" class="ac-code-textarea" rows="22" spellcheck="false">{{ inventory_content }}</textarea>
+                    <textarea id="inventory-content" name="content" class="ac-code-textarea" rows="12" spellcheck="false">{{ inventory_content }}</textarea>
                 </span>
             </div>
-            <div class="pf-v6-c-form__group pf-v6-c-form__group--action">
-                <button type="submit" class="pf-v6-c-button pf-m-primary">Save</button>
+            <div class="pf-v6-c-form__group pf-v6-c-form__group--action" style="display:flex;align-items:center;gap:1rem;">
+                <button type="submit" class="pf-v6-c-button pf-m-primary">Save Inventory</button>
+                <small style="color:var(--pf-t--global--text--color--subtle);">Override path: <code>ANSIBLECLAW_INVENTORY_FILE</code></small>
             </div>
         </form>
     </div>
 </div>
+
+{# --- Section 2: Playbook Selector with Editable Preview --- #}
+<div class="pf-v6-c-card" style="margin-bottom:1.25rem;">
+    <div class="pf-v6-c-card__title" style="display:flex;align-items:center;gap:1rem;">
+        <h3 class="pf-v6-c-card__title-text" style="margin:0;">Select Playbook</h3>
+        <span class="pf-v6-c-form-control" style="flex:1;max-width:24rem;">
+            <input type="text" id="dt-search" placeholder="Filter playbooks..." style="font-size:0.85rem;">
+        </span>
+        <button type="button" class="pf-v6-c-button pf-m-plain" id="dt-refresh-btn" title="Refresh playbook list">&#8635;</button>
+    </div>
+    <div class="pf-v6-c-card__body" style="padding:0;">
+        <div class="ac-devtest-selector">
+            <div class="ac-devtest-selector__list">
+                <div id="dt-playbook-list" class="ac-devtest-playbook-list">
+                    <div style="padding:1.5rem;text-align:center;color:var(--pf-t--global--text--color--subtle);">Loading playbooks...</div>
+                </div>
+            </div>
+            <div class="ac-devtest-selector__preview" id="dt-preview-panel">
+                <div class="ac-devtest-preview-empty">
+                    Click a playbook on the left to preview and edit its content.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# --- Section 3: AI Refine Bar --- #}
+<div class="pf-v6-c-card" style="margin-bottom:1.25rem;" id="dt-ai-card">
+    <div class="pf-v6-c-card__body" style="padding:0.75rem 1rem;">
+        <div class="ac-devtest-refine-bar">
+            <span class="pf-v6-c-form-control" style="flex:1;min-width:0;">
+                <input type="text" id="dt-ai-intent" placeholder="Describe what this playbook should do (e.g., install nginx on webservers and open port 80)..." style="font-size:0.85rem;">
+            </span>
+            <button type="button" class="pf-v6-c-button pf-m-secondary" id="dt-ai-refine-btn" disabled title="Select a playbook first">AI Refine</button>
+            <button type="button" class="pf-v6-c-button pf-m-plain" id="dt-ai-config-toggle" title="Configure AI endpoint" style="font-size:0.9rem;">&#9881;</button>
+            <a id="dt-gemini-link" href="/agents/gemini" class="pf-v6-c-button pf-m-link" style="display:none;white-space:nowrap;" title="Open Gemini CLI with this skill's working directory">Open in Gemini CLI</a>
+        </div>
+        <div id="dt-ai-status" style="display:none;font-size:0.8rem;margin-top:0.5rem;"></div>
+
+        {# --- AI Configuration Panel (hidden by default) --- #}
+        <div id="dt-ai-config-panel" style="display:none;margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--pf-t--global--border--color--default);">
+            <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.5rem;">AI Endpoint Configuration</div>
+            <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:2;min-width:14rem;">
+                    <label for="dt-ai-endpoint" style="font-size:0.8rem;color:var(--pf-t--global--text--color--subtle);display:block;margin-bottom:0.25rem;">Endpoint (OpenAI-compatible)</label>
+                    <span class="pf-v6-c-form-control">
+                        <input type="text" id="dt-ai-endpoint" placeholder="http://localhost:8000/v1" style="font-size:0.85rem;">
+                    </span>
+                </div>
+                <div style="flex:1;min-width:8rem;">
+                    <label for="dt-ai-model" style="font-size:0.8rem;color:var(--pf-t--global--text--color--subtle);display:block;margin-bottom:0.25rem;">Model</label>
+                    <span class="pf-v6-c-form-control">
+                        <input type="text" id="dt-ai-model" placeholder="default" style="font-size:0.85rem;">
+                    </span>
+                </div>
+                <div style="flex:1;min-width:8rem;">
+                    <label for="dt-ai-apikey" style="font-size:0.8rem;color:var(--pf-t--global--text--color--subtle);display:block;margin-bottom:0.25rem;">API Key (optional)</label>
+                    <span class="pf-v6-c-form-control">
+                        <input type="password" id="dt-ai-apikey" placeholder="sk-..." style="font-size:0.85rem;">
+                    </span>
+                </div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button type="button" class="pf-v6-c-button pf-m-primary pf-m-small" id="dt-ai-save-btn">Save</button>
+                </div>
+            </div>
+            <div id="dt-ai-config-status" style="font-size:0.8rem;margin-top:0.375rem;"></div>
+            <div style="font-size:0.75rem;color:var(--pf-t--global--text--color--subtle);margin-top:0.375rem;">
+                Works with vLLM, ollama, OpenAI, or any OpenAI-compatible API. The <code>/v1/chat/completions</code> path is appended automatically.
+            </div>
+        </div>
+    </div>
+</div>
+
+{# --- Section 4: Run Panel --- #}
+<div class="pf-v6-c-card">
+    <div class="pf-v6-c-card__title">
+        <h3 class="pf-v6-c-card__title-text" style="margin:0;">Run</h3>
+    </div>
+    <div class="pf-v6-c-card__body">
+        <div class="ac-devtest-run-bar">
+            <div style="flex:1;min-width:0;">
+                <div id="dt-selected-info" style="font-size:0.85rem;color:var(--pf-t--global--text--color--subtle);margin-bottom:0.5rem;">
+                    No playbook selected.
+                </div>
+                <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+                    <label style="display:flex;align-items:center;gap:0.375rem;cursor:pointer;font-size:0.85rem;">
+                        <input type="radio" name="dt-mode" value="check" checked> Dry Run (--check --diff)
+                    </label>
+                    <label style="display:flex;align-items:center;gap:0.375rem;cursor:pointer;font-size:0.85rem;">
+                        <input type="radio" name="dt-mode" value="apply"> Apply
+                    </label>
+                    <span class="pf-v6-c-form-control" style="flex:1;min-width:10rem;max-width:20rem;">
+                        <input type="text" id="dt-extra-args" placeholder="Extra args (e.g., --limit, --tags)" style="font-size:0.85rem;">
+                    </span>
+                </div>
+            </div>
+            <div style="display:flex;gap:0.5rem;align-items:flex-start;">
+                <button type="button" class="pf-v6-c-button pf-m-primary" id="dt-run-btn" disabled>Run</button>
+                <button type="button" class="pf-v6-c-button pf-m-danger" id="dt-stop-btn" style="display:none;">Stop</button>
+                <button type="button" class="pf-v6-c-button pf-m-plain" id="dt-clear-btn" title="Clear output">Clear</button>
+            </div>
+        </div>
+
+        <pre class="ac-devtest-output" id="dt-output"></pre>
+    </div>
+</div>
+
+<script>
+(function() {
+    var playbooks = [];
+    var selectedPlaybook = null;
+    var editorDirty = false;
+    var aiAvailable = false;
+
+    var listEl = document.getElementById('dt-playbook-list');
+    var searchEl = document.getElementById('dt-search');
+    var previewPanel = document.getElementById('dt-preview-panel');
+    var selectedInfo = document.getElementById('dt-selected-info');
+    var runBtn = document.getElementById('dt-run-btn');
+    var stopBtn = document.getElementById('dt-stop-btn');
+    var clearBtn = document.getElementById('dt-clear-btn');
+    var outputEl = document.getElementById('dt-output');
+    var refreshBtn = document.getElementById('dt-refresh-btn');
+    var invToggle = document.getElementById('inv-toggle');
+    var invBody = document.getElementById('inv-body');
+    var invArrow = document.getElementById('inv-toggle-arrow');
+    var aiIntentInput = document.getElementById('dt-ai-intent');
+    var aiRefineBtn = document.getElementById('dt-ai-refine-btn');
+    var aiStatusEl = document.getElementById('dt-ai-status');
+    var geminiLink = document.getElementById('dt-gemini-link');
+    var aiConfigToggle = document.getElementById('dt-ai-config-toggle');
+    var aiConfigPanel = document.getElementById('dt-ai-config-panel');
+    var aiEndpointInput = document.getElementById('dt-ai-endpoint');
+    var aiModelInput = document.getElementById('dt-ai-model');
+    var aiApikeyInput = document.getElementById('dt-ai-apikey');
+    var aiSaveBtn = document.getElementById('dt-ai-save-btn');
+    var aiConfigStatus = document.getElementById('dt-ai-config-status');
+
+    /* Inventory toggle */
+    {% if not save_error %}
+    invBody.style.display = 'none';
+    invArrow.textContent = '\u25B6';
+    {% endif %}
+
+    invToggle.addEventListener('click', function() {
+        if (invBody.style.display === 'none') {
+            invBody.style.display = '';
+            invArrow.textContent = '\u25BC';
+        } else {
+            invBody.style.display = 'none';
+            invArrow.textContent = '\u25B6';
+        }
+    });
+
+    /* Check AI availability and populate config form */
+    function loadAiStatus() {
+        fetch('/api/ai/status').then(function(r) { return r.json(); }).then(function(d) {
+            aiAvailable = d.available;
+            if (d.endpoint) aiEndpointInput.value = d.endpoint;
+            if (d.model) aiModelInput.value = d.model;
+            if (d.has_api_key) aiApikeyInput.placeholder = '(saved)';
+            if (!aiAvailable) {
+                aiConfigPanel.style.display = '';
+            }
+        }).catch(function() {});
+    }
+    loadAiStatus();
+
+    /* AI Config panel toggle */
+    aiConfigToggle.addEventListener('click', function() {
+        aiConfigPanel.style.display = aiConfigPanel.style.display === 'none' ? '' : 'none';
+    });
+
+    /* AI Config save */
+    aiSaveBtn.addEventListener('click', function() {
+        aiSaveBtn.disabled = true;
+        aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Saving...</span>';
+        var payload = {
+            endpoint: aiEndpointInput.value.trim(),
+            model: aiModelInput.value.trim()
+        };
+        var key = aiApikeyInput.value.trim();
+        if (key) payload.api_key = key;
+
+        fetch('/api/ai/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            aiSaveBtn.disabled = false;
+            if (d.saved) {
+                aiAvailable = d.available;
+                aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--success--default);">Saved' + (d.available ? '' : ' (no endpoint set)') + '</span>';
+                if (d.available) {
+                    setTimeout(function() { aiConfigPanel.style.display = 'none'; }, 1000);
+                }
+            } else {
+                aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">Save failed</span>';
+            }
+        })
+        .catch(function(err) {
+            aiSaveBtn.disabled = false;
+            aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">Error: ' + escapeHtml(err.message) + '</span>';
+        });
+    });
+
+    /* Load playbooks */
+    function loadPlaybooks() {
+        listEl.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--pf-t--global--text--color--subtle);">Loading...</div>';
+        fetch('/api/devtest/playbooks')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                playbooks = data;
+                renderList();
+            })
+            .catch(function(err) {
+                listEl.innerHTML = '<div style="padding:1rem;color:var(--pf-t--global--color--status--danger--default);">Failed to load: ' + err.message + '</div>';
+            });
+    }
+
+    function renderList() {
+        var filter = searchEl.value.toLowerCase();
+        var groups = {};
+        var order = [];
+        playbooks.forEach(function(pb) {
+            var text = pb.skill_name + ' ' + pb.playbook + ' ' + pb.skill;
+            if (filter && text.toLowerCase().indexOf(filter) === -1) return;
+            if (!groups[pb.skill]) {
+                groups[pb.skill] = { name: pb.skill_name, type: pb.type, items: [] };
+                order.push(pb.skill);
+            }
+            groups[pb.skill].items.push(pb);
+        });
+
+        if (order.length === 0) {
+            listEl.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--pf-t--global--text--color--subtle);">' +
+                (playbooks.length === 0 ? 'No playbooks found. Generate skills first.' : 'No matches.') + '</div>';
+            return;
+        }
+
+        var html = '';
+        order.forEach(function(key) {
+            var g = groups[key];
+            html += '<div class="ac-devtest-group-header">';
+            html += '<span>' + escapeHtml(g.name) + '</span>';
+            html += '<span class="ac-devtest-badge">' + escapeHtml(g.type) + '</span>';
+            html += '</div>';
+            g.items.forEach(function(pb) {
+                var isSelected = selectedPlaybook && selectedPlaybook.playbook_abs === pb.playbook_abs;
+                var cls = 'ac-devtest-playbook-item';
+                if (isSelected) cls += ' ac-devtest-playbook-item--selected';
+                html += '<div class="' + cls + '" data-path="' + escapeHtml(pb.playbook_abs) + '">';
+                html += '<span class="ac-devtest-pb-name">' + escapeHtml(pb.playbook.replace('assets/', '')) + '</span>';
+                if (isSelected) html += '<span class="ac-devtest-sel-mark">selected</span>';
+                html += '</div>';
+            });
+        });
+        listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.ac-devtest-playbook-item').forEach(function(el) {
+            el.addEventListener('click', function() {
+                var path = el.dataset.path;
+                if (editorDirty && !confirm('You have unsaved changes. Discard and load new playbook?')) return;
+                var pb = playbooks.find(function(p) { return p.playbook_abs === path; });
+                selectedPlaybook = pb;
+                editorDirty = false;
+                updateSelection();
+                loadPreview(pb);
+                renderList();
+            });
+        });
+    }
+
+    function loadPreview(pb) {
+        previewPanel.innerHTML = '<div class="ac-devtest-preview-loading">Loading...</div>';
+
+        fetch('/api/devtest/playbook-content?path=' + encodeURIComponent(pb.playbook_abs))
+            .then(function(r) {
+                if (!r.ok) throw new Error('Failed to load');
+                return r.text();
+            })
+            .then(function(content) {
+                buildEditor(pb, content);
+            })
+            .catch(function() {
+                previewPanel.innerHTML = '<div class="ac-devtest-preview-empty">Could not load playbook content.</div>';
+            });
+    }
+
+    function buildEditor(pb, content) {
+        var html = '';
+        html += '<div class="ac-devtest-preview-header">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;">';
+        html += '<div>';
+        html += '<strong>' + escapeHtml(pb.skill_name) + '</strong>';
+        html += '<span class="ac-devtest-badge" style="margin-left:0.5rem;">' + escapeHtml(pb.type) + '</span>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:0.5rem;">';
+        html += '<button type="button" class="pf-v6-c-button pf-m-primary pf-m-small" id="dt-save-btn" disabled>Save</button>';
+        html += '<button type="button" class="pf-v6-c-button pf-m-plain pf-m-small" id="dt-reload-btn" title="Reload from disk">&#8635;</button>';
+        html += '</div>';
+        html += '</div>';
+        html += '<div style="font-size:0.8rem;color:var(--pf-t--global--text--color--subtle);margin-top:0.25rem;">';
+        html += '<code>' + escapeHtml(pb.playbook) + '</code>';
+        html += '<span id="dt-save-status" style="margin-left:0.75rem;"></span>';
+        html += '</div>';
+        html += '</div>';
+        html += '<textarea class="ac-devtest-preview-editor" id="dt-editor" spellcheck="false"></textarea>';
+        previewPanel.innerHTML = html;
+
+        var editor = document.getElementById('dt-editor');
+        var saveBtn = document.getElementById('dt-save-btn');
+        var reloadBtn = document.getElementById('dt-reload-btn');
+        var saveStatus = document.getElementById('dt-save-status');
+
+        editor.value = content;
+        editorDirty = false;
+
+        editor.addEventListener('input', function() {
+            editorDirty = true;
+            saveBtn.disabled = false;
+            saveStatus.textContent = '';
+        });
+
+        saveBtn.addEventListener('click', function() {
+            saveBtn.disabled = true;
+            saveStatus.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Saving...</span>';
+            fetch('/api/devtest/playbook-save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: pb.playbook_abs, content: editor.value })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.saved) {
+                    editorDirty = false;
+                    saveBtn.disabled = true;
+                    saveStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--success--default);">Saved</span>';
+                } else {
+                    saveStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">' + escapeHtml(d.error || 'Save failed') + '</span>';
+                    saveBtn.disabled = false;
+                }
+            })
+            .catch(function(err) {
+                saveStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">Error: ' + escapeHtml(err.message) + '</span>';
+                saveBtn.disabled = false;
+            });
+        });
+
+        reloadBtn.addEventListener('click', function() {
+            if (editorDirty && !confirm('Discard unsaved changes and reload from disk?')) return;
+            loadPreview(pb);
+        });
+
+        geminiLink.style.display = '';
+        var skillDir = pb.playbook_abs.replace(/\/assets\/.*$/, '');
+        geminiLink.href = '/agents/gemini?cwd=' + encodeURIComponent(skillDir);
+
+        aiRefineBtn.disabled = false;
+    }
+
+    function getEditorContent() {
+        var editor = document.getElementById('dt-editor');
+        return editor ? editor.value : null;
+    }
+
+    function setEditorContent(content) {
+        var editor = document.getElementById('dt-editor');
+        if (editor) {
+            editor.value = content;
+            editorDirty = true;
+            var saveBtn = document.getElementById('dt-save-btn');
+            if (saveBtn) saveBtn.disabled = false;
+        }
+    }
+
+    function updateSelection() {
+        if (selectedPlaybook) {
+            selectedInfo.innerHTML = '<strong>' + escapeHtml(selectedPlaybook.skill_name) + '</strong> / <code>' + escapeHtml(selectedPlaybook.playbook) + '</code>';
+            runBtn.disabled = false;
+        } else {
+            selectedInfo.textContent = 'No playbook selected.';
+            runBtn.disabled = true;
+        }
+    }
+
+    searchEl.addEventListener('input', renderList);
+    refreshBtn.addEventListener('click', loadPlaybooks);
+
+    /* AI Refine */
+    aiRefineBtn.addEventListener('click', function() {
+        if (!selectedPlaybook) return;
+        if (!aiAvailable) {
+            aiConfigPanel.style.display = '';
+            aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--warning--default);">Configure an AI endpoint first, then try again.</span>';
+            aiEndpointInput.focus();
+            return;
+        }
+        var intent = aiIntentInput.value.trim();
+        if (!intent) {
+            aiIntentInput.focus();
+            aiIntentInput.style.outline = '2px solid var(--pf-t--global--color--status--warning--default)';
+            setTimeout(function() { aiIntentInput.style.outline = ''; }, 1500);
+            return;
+        }
+        var content = getEditorContent();
+        if (!content) return;
+
+        aiRefineBtn.disabled = true;
+        aiRefineBtn.textContent = 'Refining...';
+        aiStatusEl.style.display = '';
+        aiStatusEl.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Sending to AI...</span>';
+
+        var invContent = '';
+        var invTextarea = document.getElementById('inventory-content');
+        if (invTextarea) invContent = invTextarea.value;
+
+        fetch('/api/devtest/refine', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                playbook_content: content,
+                intent: intent,
+                inventory_content: invContent
+            })
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                return response.json().then(function(d) { throw new Error(d.error || 'Refine failed'); });
+            }
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            var result = '';
+            aiStatusEl.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Receiving refined playbook...</span>';
+
+            function pump() {
+                return reader.read().then(function(chunk) {
+                    if (chunk.done) {
+                        if (result.trim()) {
+                            setEditorContent(result);
+                            aiStatusEl.innerHTML = '<span style="color:var(--pf-t--global--color--status--success--default);">Playbook refined by AI. Review the changes and Save when ready.</span>';
+                        } else {
+                            aiStatusEl.innerHTML = '<span style="color:var(--pf-t--global--color--status--warning--default);">AI returned empty response.</span>';
+                        }
+                        aiRefineBtn.disabled = false;
+                        aiRefineBtn.textContent = 'AI Refine';
+                        return;
+                    }
+                    result += decoder.decode(chunk.value, { stream: true });
+                    return pump();
+                });
+            }
+            return pump();
+        })
+        .catch(function(err) {
+            aiStatusEl.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">' + escapeHtml(err.message) + '</span>';
+            aiRefineBtn.disabled = false;
+            aiRefineBtn.textContent = 'AI Refine';
+        });
+    });
+
+    aiIntentInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !aiRefineBtn.disabled) {
+            e.preventDefault();
+            aiRefineBtn.click();
+        }
+    });
+
+    /* Run playbook */
+    function getMode() {
+        var radios = document.querySelectorAll('input[name="dt-mode"]');
+        for (var i = 0; i < radios.length; i++) {
+            if (radios[i].checked) return radios[i].value;
+        }
+        return 'check';
+    }
+
+    runBtn.addEventListener('click', function() {
+        if (!selectedPlaybook) return;
+        runBtn.disabled = true;
+        stopBtn.style.display = '';
+        outputEl.textContent = '';
+
+        var mode = getMode();
+        var applyMode = mode === 'apply';
+        if (applyMode && !confirm('This will apply real changes to the target hosts. Continue?')) {
+            runBtn.disabled = false;
+            stopBtn.style.display = 'none';
+            return;
+        }
+
+        outputEl.textContent = '$ ansible-playbook ' + selectedPlaybook.playbook + (mode === 'check' ? ' --check --diff' : '') + '\n\n';
+
+        var body = {
+            playbook_path: selectedPlaybook.playbook_abs,
+            mode: mode,
+            extra_args: document.getElementById('dt-extra-args').value.trim()
+        };
+        var editorContent = getEditorContent();
+        if (editorContent !== null && editorDirty) {
+            body.playbook_content = editorContent;
+        }
+
+        fetch('/api/devtest/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                return response.json().then(function(d) { throw new Error(d.error || 'Request failed'); });
+            }
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            function pump() {
+                return reader.read().then(function(result) {
+                    if (result.done) {
+                        runDone();
+                        return;
+                    }
+                    outputEl.textContent += decoder.decode(result.value, { stream: true });
+                    outputEl.scrollTop = outputEl.scrollHeight;
+                    return pump();
+                });
+            }
+            return pump();
+        })
+        .catch(function(err) {
+            outputEl.textContent += '\n--- Error: ' + err.message + ' ---\n';
+            runDone();
+        });
+    });
+
+    function runDone() {
+        runBtn.disabled = false;
+        stopBtn.style.display = 'none';
+    }
+
+    stopBtn.addEventListener('click', function() {
+        fetch('/api/devtest/stop', { method: 'POST' })
+            .then(function() {
+                outputEl.textContent += '\n--- Stopped by user ---\n';
+            });
+    });
+
+    clearBtn.addEventListener('click', function() {
+        outputEl.textContent = '';
+    });
+
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    loadPlaybooks();
+})();
+</script>
 {% endblock %}

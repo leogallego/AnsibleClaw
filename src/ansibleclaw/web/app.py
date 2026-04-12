@@ -30,6 +30,7 @@ from fastapi.templating import Jinja2Templates
 
 from ansibleclaw.config import (
     AAPSettings,
+    AISettings,
     BUILTINS_DIR,
     INSTALL_PATHS,
     SKILLS_DIR,
@@ -603,6 +604,314 @@ async def inventory_save(request: Request, content: str = Form("")):
         "save_ok": "Inventory saved.",
         "save_error": None,
     })
+
+
+# --- AI configuration status ---
+
+
+@app.get("/api/ai/status")
+async def api_ai_status():
+    """Return whether AI refinement is configured and current settings."""
+    configured = AISettings.is_configured()
+    return JSONResponse({
+        "available": configured,
+        "endpoint": AISettings.get("endpoint"),
+        "model": AISettings.get("model", ""),
+        "has_api_key": bool(AISettings.get("api_key")),
+    })
+
+
+@app.post("/api/ai/save")
+async def api_ai_save(request: Request):
+    """Save AI endpoint configuration to .ansibleclaw.yml."""
+    body = await request.json()
+    endpoint = body.get("endpoint", "").strip()
+    model = body.get("model", "").strip()
+    api_key = body.get("api_key", "").strip()
+
+    settings_path = Path.cwd() / ".ansibleclaw.yml"
+    existing: dict = {}
+    if settings_path.exists():
+        try:
+            existing = yaml.safe_load(settings_path.read_text()) or {}
+        except Exception:
+            pass
+
+    ai_section: dict = {}
+    if endpoint:
+        ai_section["endpoint"] = endpoint
+    if model:
+        ai_section["model"] = model
+    if api_key:
+        ai_section["api_key"] = api_key
+
+    if ai_section:
+        existing["ai"] = ai_section
+    elif "ai" in existing:
+        del existing["ai"]
+
+    settings_path.write_text(yaml.dump(existing, default_flow_style=False, sort_keys=False))
+    AISettings.invalidate_cache()
+
+    return JSONResponse({"saved": True, "available": bool(endpoint)})
+
+
+# --- Dev/Test: playbook discovery and local execution ---
+
+_devtest_process: Optional[subprocess.Popen] = None
+
+
+@app.get("/api/devtest/playbooks")
+async def api_devtest_playbooks():
+    """Scan skills for playbooks and return a JSON list."""
+    results: list[dict] = []
+    for skill in _list_skills():
+        skill_dir = Path(skill["path"])
+        assets_dir = skill_dir / "assets"
+        if not assets_dir.exists():
+            continue
+        for yml in sorted(assets_dir.rglob("*.yml")):
+            if yml.name in ("requirements.yml",) or yml.name.startswith("."):
+                continue
+            rel = str(yml.relative_to(skill_dir))
+            results.append({
+                "skill": skill["dir_name"],
+                "skill_name": skill["name"],
+                "playbook": rel,
+                "playbook_abs": str(yml),
+                "type": skill["type"],
+            })
+    return results
+
+
+def _devtest_validate_path(path_str: str) -> tuple[Path | None, Response | None]:
+    """Validate a playbook path is within allowed directories. Returns (resolved_path, error_response)."""
+    if not path_str:
+        return None, None
+    pb = Path(path_str).resolve()
+    skills_resolved = SKILLS_DIR.resolve()
+    builtins_resolved = BUILTINS_DIR.resolve()
+    if not (str(pb).startswith(str(skills_resolved)) or str(pb).startswith(str(builtins_resolved))):
+        return None, Response("Path outside allowed directories", media_type="text/plain", status_code=403)
+    return pb, None
+
+
+@app.get("/api/devtest/playbook-content")
+async def api_devtest_playbook_content(path: str = Query("")):
+    """Return the text content of a playbook file for preview."""
+    if not path:
+        return Response("No path specified", media_type="text/plain", status_code=400)
+    pb, err = _devtest_validate_path(path)
+    if err:
+        return err
+    if not pb.is_file():
+        return Response("File not found", media_type="text/plain", status_code=404)
+    try:
+        content = pb.read_text(errors="replace")
+        return Response(content, media_type="text/plain")
+    except Exception:
+        return Response("Cannot read file", media_type="text/plain", status_code=500)
+
+
+@app.post("/api/devtest/playbook-save")
+async def api_devtest_playbook_save(request: Request):
+    """Write edited playbook content back to disk."""
+    body = await request.json()
+    path_str = body.get("path", "").strip()
+    content = body.get("content", "")
+    if not path_str:
+        return JSONResponse({"error": "No path specified"}, status_code=400)
+    pb, err = _devtest_validate_path(path_str)
+    if err:
+        return JSONResponse({"error": "Path outside allowed directories"}, status_code=403)
+    if not pb.is_file():
+        return JSONResponse({"error": "File not found"}, status_code=404)
+    try:
+        pb.write_text(content)
+        return JSONResponse({"saved": True})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/devtest/refine")
+async def api_devtest_refine(request: Request):
+    """Use an OpenAI-compatible endpoint to refine a playbook based on user intent."""
+    from starlette.responses import StreamingResponse
+    import urllib.request
+    import urllib.error
+    import json as _json
+
+    if not AISettings.is_configured():
+        return JSONResponse({"error": "AI is not configured. Add an 'ai:' section to .ansibleclaw.yml with 'endpoint', 'model', and optionally 'api_key'."}, status_code=400)
+
+    body = await request.json()
+    playbook_content = body.get("playbook_content", "").strip()
+    intent = body.get("intent", "").strip()
+    inventory_content = body.get("inventory_content", "").strip()
+
+    if not intent:
+        return JSONResponse({"error": "No intent provided"}, status_code=400)
+    if not playbook_content:
+        return JSONResponse({"error": "No playbook content provided"}, status_code=400)
+
+    system_prompt = (
+        "You are an expert Ansible automation engineer. "
+        "The user will give you a template playbook (which may contain CHANGEME placeholders or example-only tasks) "
+        "and describe what they want it to do. "
+        "Rewrite the playbook so it is production-ready for the described intent. "
+        "Return ONLY the complete, valid YAML playbook — no explanations, no markdown fences, no commentary. "
+        "Preserve the overall structure (hosts, become, collections) but replace all placeholders and examples "
+        "with real, working tasks that accomplish the user's goal."
+    )
+    if inventory_content:
+        system_prompt += (
+            "\n\nThe user's current Ansible inventory is:\n```\n" + inventory_content + "\n```\n"
+            "Use host groups and variables from this inventory where appropriate."
+        )
+
+    user_msg = f"## Intent\n{intent}\n\n## Current Playbook\n```yaml\n{playbook_content}\n```"
+
+    endpoint = AISettings.get("endpoint").rstrip("/")
+    model = AISettings.get("model", "default")
+    api_key = AISettings.get("api_key", "")
+
+    payload = _json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_msg},
+        ],
+        "stream": True,
+        "temperature": 0.3,
+    }).encode()
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    def stream():
+        try:
+            req = urllib.request.Request(
+                f"{endpoint}/chat/completions",
+                data=payload,
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                for raw_line in resp:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = _json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        text = delta.get("content", "")
+                        if text:
+                            yield text
+                    except (_json.JSONDecodeError, IndexError, KeyError):
+                        continue
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode("utf-8", errors="replace")[:500]
+            yield f"\n--- AI Error ({exc.code}): {err_body} ---\n"
+        except Exception as exc:
+            yield f"\n--- AI Error: {exc} ---\n"
+
+    return StreamingResponse(stream(), media_type="text/plain; charset=utf-8")
+
+
+@app.post("/api/devtest/run")
+async def api_devtest_run(request: Request):
+    """Run ansible-playbook against local inventory with streaming output.
+
+    If ``playbook_content`` is provided in the body, write it to a temp file
+    and run that instead of the on-disk file (allows running unsaved edits).
+    """
+    from starlette.responses import StreamingResponse
+    import shlex
+
+    global _devtest_process
+
+    body = await request.json()
+    playbook_path = body.get("playbook_path", "").strip()
+    playbook_content = body.get("playbook_content")
+    mode = body.get("mode", "check")
+    extra_args = body.get("extra_args", "").strip()
+
+    if not playbook_path:
+        return JSONResponse({"error": "No playbook specified"}, status_code=400)
+
+    pb, err = _devtest_validate_path(playbook_path)
+    if err:
+        return JSONResponse({"error": "Playbook path is outside allowed directories"}, status_code=403)
+    if not pb.is_file():
+        return JSONResponse({"error": f"Playbook not found: {playbook_path}"}, status_code=404)
+
+    ansible_cmd = shutil.which("ansible-playbook")
+    if not ansible_cmd:
+        return JSONResponse({"error": "ansible-playbook not found on PATH"}, status_code=500)
+
+    tmp_file = None
+    run_path = str(pb)
+    if playbook_content is not None:
+        tmp_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yml", prefix="ansibleclaw_run_",
+            dir=pb.parent, delete=False,
+        )
+        tmp_file.write(playbook_content)
+        tmp_file.close()
+        run_path = tmp_file.name
+
+    inv_path = local_inventory_path()
+    cmd = [ansible_cmd, run_path, "-i", str(inv_path)]
+    if mode == "check":
+        cmd += ["--check", "--diff"]
+    if extra_args:
+        cmd += shlex.split(extra_args)
+
+    def stream():
+        global _devtest_process
+        try:
+            _devtest_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            for line in iter(_devtest_process.stdout.readline, ""):
+                yield line
+            _devtest_process.stdout.close()
+            rc = _devtest_process.wait()
+            yield f"\n--- Exit code: {rc} ---\n"
+        except Exception as exc:
+            yield f"\n--- Error: {exc} ---\n"
+        finally:
+            _devtest_process = None
+            if tmp_file is not None:
+                try:
+                    os.unlink(tmp_file.name)
+                except OSError:
+                    pass
+
+    return StreamingResponse(stream(), media_type="text/plain; charset=utf-8")
+
+
+@app.post("/api/devtest/stop")
+async def api_devtest_stop():
+    """Stop a running ansible-playbook process."""
+    global _devtest_process
+    if _devtest_process and _devtest_process.poll() is None:
+        _devtest_process.terminate()
+        try:
+            _devtest_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _devtest_process.kill()
+        _devtest_process = None
+        return {"stopped": True}
+    return {"stopped": False, "message": "No process running"}
 
 
 # --- Collections ---
@@ -1918,11 +2227,12 @@ async def api_gemini_stop_terminal():
 
 
 @app.get("/agents/gemini")
-async def agents_gemini_page(request: Request):
+async def agents_gemini_page(request: Request, cwd: str = Query("")):
+    default_cwd = cwd.strip() if cwd.strip() else "/Users/micyang/agent"
     return TEMPLATES.TemplateResponse(
         request,
         "agents_gemini.html",
-        {"page": "agents-gemini", "default_cwd": "/Users/micyang/agent"},
+        {"page": "agents-gemini", "default_cwd": default_cwd},
     )
 
 

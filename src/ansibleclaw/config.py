@@ -159,6 +159,55 @@ class AAPSettings:
         cls._file_cache = None
 
 
+class AISettings:
+    """Optional AI endpoint configuration from .ansibleclaw.yml ``ai:`` section.
+
+    Reads ``ai.endpoint``, ``ai.model``, and ``ai.api_key`` from the settings file.
+    Environment variables ``ANSIBLECLAW_AI_ENDPOINT``, ``ANSIBLECLAW_AI_MODEL``,
+    and ``ANSIBLECLAW_AI_API_KEY`` override file values.
+    """
+
+    _cache: dict[str, str] | None = None
+
+    @classmethod
+    def _load(cls) -> dict[str, str]:
+        if cls._cache is not None:
+            return cls._cache
+        path = Path.cwd() / SETTINGS_FILE
+        if path.exists():
+            try:
+                data = yaml.safe_load(path.read_text()) or {}
+                ai = data.get("ai", {})
+                cls._cache = {k: str(v) for k, v in ai.items()} if isinstance(ai, dict) else {}
+            except Exception:
+                cls._cache = {}
+        else:
+            cls._cache = {}
+        return cls._cache
+
+    @classmethod
+    def get(cls, key: str, default: str = "") -> str:
+        env_map = {
+            "endpoint": "ANSIBLECLAW_AI_ENDPOINT",
+            "model": "ANSIBLECLAW_AI_MODEL",
+            "api_key": "ANSIBLECLAW_AI_API_KEY",
+        }
+        env_name = env_map.get(key)
+        if env_name:
+            env_val = os.environ.get(env_name, "").strip()
+            if env_val:
+                return env_val
+        return cls._load().get(key, default)
+
+    @classmethod
+    def is_configured(cls) -> bool:
+        return bool(cls.get("endpoint"))
+
+    @classmethod
+    def invalidate_cache(cls) -> None:
+        cls._cache = None
+
+
 def local_inventory_path() -> Path:
     """Path to the on-disk inventory file for local / CLI workflows.
 
