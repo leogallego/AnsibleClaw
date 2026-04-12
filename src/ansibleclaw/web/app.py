@@ -9,16 +9,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 import socket
 import subprocess
+import tarfile
+import tempfile
 import threading
 import time
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
 import yaml
-from fastapi import FastAPI, Form, Query, Request, WebSocket
+from fastapi import FastAPI, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -856,7 +861,7 @@ def _aap_ping_request(base_url: str, api_prefix: str) -> tuple[bool, str | None]
     url = f"{base}{api_prefix}/ping/"
     try:
         req = urllib.request.Request(url, headers=headers, method="GET")
-        with urllib.request.urlopen(req, context=ctx, timeout=10):
+        with urllib.request.urlopen(req, context=ctx, timeout=3):
             return True, None
     except urllib.error.HTTPError as exc:
         return False, f"HTTP {exc.code}"
@@ -883,9 +888,8 @@ def _aap_ping() -> bool:
     return False
 
 
-# Short-lived ping cache so nav shows consistent green/amber without re-pinging
-# on every page (each ping can take up to two HTTP attempts with timeouts).
-_AAP_PING_TTL_SEC = 45.0
+_AAP_PING_TTL_OK = 60.0
+_AAP_PING_TTL_FAIL = 120.0
 _aap_ping_singleton: tuple[str, float, bool] | None = None
 
 
@@ -900,7 +904,8 @@ def _aap_seed_ping_cache(ok: bool) -> None:
         _aap_ping_singleton = None
         return
     key = _aap_ping_cache_key()
-    _aap_ping_singleton = (key, time.monotonic() + _AAP_PING_TTL_SEC, ok)
+    ttl = _AAP_PING_TTL_OK if ok else _AAP_PING_TTL_FAIL
+    _aap_ping_singleton = (key, time.monotonic() + ttl, ok)
 
 
 def _invalidate_aap_ping_cache() -> None:
@@ -923,7 +928,8 @@ def _aap_ping_cached(*, force: bool = False) -> bool:
     ):
         return _aap_ping_singleton[2]
     ok = _aap_ping()
-    _aap_ping_singleton = (key, now + _AAP_PING_TTL_SEC, ok)
+    ttl = _AAP_PING_TTL_OK if ok else _AAP_PING_TTL_FAIL
+    _aap_ping_singleton = (key, now + ttl, ok)
     return ok
 
 
@@ -1016,24 +1022,28 @@ TEMPLATES.TemplateResponse = _patched_template_response
 async def aap_nav_status():
     """Tiny HTMX fragment returning the AAP dot indicator for the nav bar.
 
-    Runs the (potentially slow) ping in a thread so the event loop stays
-    responsive, then returns the appropriate dot HTML.
+    Uses the non-blocking cache read so the response is always instant.
+    If the cache is cold, kicks off a background thread to refresh it.
     """
     configured = _aap_is_configured()
     if not configured:
         return HTMLResponse("")
 
-    loop = asyncio.get_running_loop()
-    connected = await loop.run_in_executor(None, lambda: _aap_ping_cached(force=False))
-
-    if connected:
+    cached = _aap_ping_cached_nonblocking()
+    if cached is None:
+        threading.Thread(target=_aap_ping_background, daemon=True).start()
+        return HTMLResponse(
+            '<span class="ac-aap-dot ac-aap-dot--configured" '
+            'title="AAP Configured (checking...)">&#9679;</span>'
+        )
+    if cached:
         return HTMLResponse(
             '<span class="ac-aap-dot ac-aap-dot--connected" '
             'title="AAP Connected">&#9679;</span>'
         )
     return HTMLResponse(
         '<span class="ac-aap-dot ac-aap-dot--configured" '
-        'title="AAP Configured (not verified)">&#9679;</span>'
+        'title="AAP Configured (unreachable)">&#9679;</span>'
     )
 
 
@@ -1906,60 +1916,6 @@ async def api_gemini_stop_terminal():
     return JSONResponse(_stop_gemini_ttyd())
 
 
-@app.websocket("/ws/gemini")
-async def ws_gemini_proxy(websocket: WebSocket):
-    await websocket.accept()
-
-    if _gemini_ttyd_port is None:
-        await websocket.close(code=1011, reason="ttyd not running")
-        return
-
-    import websockets as _ws_lib
-
-    ttyd_ws_url = f"ws://127.0.0.1:{_gemini_ttyd_port}/ws"
-
-    try:
-        async with _ws_lib.connect(
-            ttyd_ws_url,
-            subprotocols=["tty"],
-            ping_interval=None,
-            close_timeout=1,
-        ) as ttyd_ws:
-
-            async def _fwd_to_client():
-                try:
-                    async for message in ttyd_ws:
-                        if isinstance(message, bytes):
-                            await websocket.send_bytes(message)
-                        else:
-                            await websocket.send_text(message)
-                except Exception:
-                    pass
-
-            async def _fwd_to_ttyd():
-                try:
-                    while True:
-                        data = await websocket.receive()
-                        if data["type"] == "websocket.receive":
-                            if "bytes" in data:
-                                await ttyd_ws.send(data["bytes"])
-                            elif "text" in data:
-                                await ttyd_ws.send(data["text"])
-                        elif data["type"] == "websocket.disconnect":
-                            break
-                except Exception:
-                    pass
-
-            await asyncio.gather(
-                _fwd_to_client(), _fwd_to_ttyd(), return_exceptions=True
-            )
-    except Exception as exc:
-        _gemini_logger.error("Gemini ttyd proxy error: %s", exc)
-        try:
-            await websocket.close(code=1011, reason=str(exc))
-        except Exception:
-            pass
-
 
 @app.get("/agents/gemini")
 async def agents_gemini_page(request: Request):
@@ -1968,3 +1924,363 @@ async def agents_gemini_page(request: Request):
         "agents_gemini.html",
         {"page": "agents-gemini", "default_cwd": "/Users/micyang/agent"},
     )
+
+
+# =====================================================================
+# Starter Pack — archive upload, browse, and router skill generation
+# =====================================================================
+
+_sp_logger = logging.getLogger("ansibleclaw.starterpack")
+
+_starter_pack_dir: Optional[Path] = None
+_starter_pack_use_cases: list[dict] = []
+
+_SP_CATEGORIES = [
+    (range(1, 33), "Linux Operations"),
+    (range(81, 86), "Windows Operations"),
+    (range(101, 104), "VMware vSphere Operations"),
+]
+
+
+def _sp_category(folder_name: str) -> str:
+    m = re.match(r"^(\d+)", folder_name)
+    if not m:
+        return "Other"
+    num = int(m.group(1))
+    for rng, label in _SP_CATEGORIES:
+        if num in rng:
+            return label
+    return "Other"
+
+
+def _sp_extract_archive(data: bytes, filename: str) -> Path:
+    global _starter_pack_dir
+    if _starter_pack_dir and _starter_pack_dir.exists():
+        shutil.rmtree(_starter_pack_dir, ignore_errors=True)
+
+    tmp = Path(tempfile.mkdtemp(prefix="ansibleclaw_sp_")).resolve()
+
+    lower = filename.lower()
+    if lower.endswith(".zip"):
+        with zipfile.ZipFile(BytesIO(data)) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    (tmp / info.filename).mkdir(parents=True, exist_ok=True)
+                    continue
+                dest = (tmp / info.filename).resolve()
+                if not str(dest).startswith(str(tmp)):
+                    continue
+                zf.extract(info, tmp)
+    elif lower.endswith((".tar.gz", ".tgz", ".tar.bz2", ".tar")):
+        with tarfile.open(fileobj=BytesIO(data)) as tf:
+            safe_members = []
+            for member in tf.getmembers():
+                dest = (tmp / member.name).resolve()
+                if str(dest).startswith(str(tmp)):
+                    safe_members.append(member)
+            tf.extractall(tmp, members=safe_members, filter="data")
+    else:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise ValueError(f"Unsupported archive format: {filename}")
+
+    _starter_pack_dir = _sp_find_use_case_root(tmp)
+    _sp_logger.info(
+        "Extracted %s -> %s (%d top-level items)",
+        filename, _starter_pack_dir,
+        len(list(_starter_pack_dir.iterdir())),
+    )
+    return _starter_pack_dir
+
+
+def _sp_find_use_case_root(base: Path) -> Path:
+    """Drill into wrapper directories until we find the level with use case folders."""
+    _skip = {"__MACOSX", ".DS_Store"}
+    for _ in range(5):
+        children = [
+            c for c in base.iterdir()
+            if not c.name.startswith(".") and c.name not in _skip
+        ]
+        dirs = [c for c in children if c.is_dir()]
+        if not dirs:
+            return base
+        has_yml_dirs = any(
+            list(d.glob("*.yml")) or list(d.glob("*.yaml")) or list(d.rglob("*.yml"))
+            for d in dirs
+        )
+        if has_yml_dirs and len(dirs) > 1:
+            return base
+        if len(dirs) == 1 and len(children) <= 2:
+            base = dirs[0]
+            continue
+        return base
+    return base
+
+
+def _sp_scan_use_cases(base: Path) -> list[dict]:
+    global _starter_pack_use_cases
+    cases = []
+    for d in sorted(base.iterdir()):
+        if not d.is_dir() or d.name.startswith(".") or d.name == "__MACOSX":
+            continue
+
+        yml_files = list(d.glob("*.yml")) + list(d.glob("*.yaml"))
+        playbooks = [
+            f.name for f in yml_files
+            if f.name not in ("requirements.yml",)
+            and not f.name.startswith(".")
+        ]
+
+        templates = [f.name for f in d.glob("*.j2")]
+
+        if not playbooks and not templates:
+            sub_ymls = list(d.rglob("*.yml")) + list(d.rglob("*.yaml"))
+            if sub_ymls:
+                playbooks = [
+                    str(f.relative_to(d)) for f in sub_ymls
+                    if f.name not in ("requirements.yml",)
+                    and not f.name.startswith(".")
+                ]
+            sub_j2 = list(d.rglob("*.j2"))
+            if sub_j2:
+                templates = [str(f.relative_to(d)) for f in sub_j2]
+
+        if not playbooks:
+            continue
+
+        other = []
+        for f in d.iterdir():
+            if f.is_file() and f.suffix not in (".yml", ".yaml", ".j2"):
+                fname = f.name.lower()
+                if fname not in ("readme.md", "readme.txt", "readme"):
+                    other.append(f.name)
+
+        readme_text = ""
+        for rn in ("README.md", "readme.md", "README.txt", "README",
+                    "README.MD", "Readme.md"):
+            rp = d / rn
+            if rp.is_file():
+                try:
+                    readme_text = rp.read_text(errors="replace")
+                except Exception:
+                    pass
+                break
+
+        desc = ""
+        if readme_text:
+            for line in readme_text.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    desc = stripped[:200]
+                    break
+
+        cases.append({
+            "name": d.name,
+            "category": _sp_category(d.name),
+            "description": desc,
+            "readme": readme_text,
+            "playbooks": sorted(playbooks),
+            "templates": sorted(templates),
+            "other_files": sorted(other),
+        })
+
+    _starter_pack_use_cases = cases
+    _sp_logger.info("Scanned %d use cases from %s", len(cases), base)
+    return cases
+
+
+def _sp_generate_router_skill(
+    skill_name: str,
+    selected_names: list[str],
+    target: str,
+    custom_path: str = "",
+) -> dict:
+    if not _starter_pack_dir or not _starter_pack_use_cases:
+        return {"success": False, "error": "No starter pack uploaded"}
+
+    selected = [uc for uc in _starter_pack_use_cases if uc["name"] in selected_names]
+    if not selected:
+        return {"success": False, "error": "No use cases selected"}
+
+    dir_name = re.sub(r"[^a-zA-Z0-9_]", "_", skill_name).strip("_").lower()
+    if not dir_name:
+        dir_name = "starter_pack"
+
+    if target == "project":
+        output_dir = SKILLS_DIR / dir_name
+    elif target in INSTALL_PATHS:
+        output_dir = INSTALL_PATHS[target] / dir_name
+    elif target == "custom" and custom_path:
+        output_dir = Path(custom_path) / dir_name
+    else:
+        output_dir = SKILLS_DIR / dir_name
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    aap = AAPSettings.get_all()
+    aap_configured = bool(aap.get("url") and aap.get("token"))
+
+    skill_template_dir = Path(__file__).resolve().parent.parent / "templates"
+    sp_template_path = skill_template_dir / "starter_pack_skill.md.j2"
+
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader(str(skill_template_dir)))
+    tmpl = env.get_template("starter_pack_skill.md.j2")
+
+    categories_ordered = []
+    cat_map: dict[str, list] = {}
+    for uc in selected:
+        cat = uc["category"]
+        if cat not in cat_map:
+            cat_map[cat] = []
+            categories_ordered.append(cat)
+        cat_map[cat].append(uc)
+
+    skill_md = tmpl.render(
+        skill_name=skill_name,
+        dir_name=dir_name,
+        use_cases=selected,
+        categories=categories_ordered,
+        categories_map=cat_map,
+        aap_configured=aap_configured,
+        aap_url=aap.get("url", ""),
+        aap_inventory=aap.get("default_inventory", ""),
+        aap_credential=aap.get("default_credential", ""),
+        aap_project=aap.get("default_project", ""),
+        aap_organization=aap.get("default_organization", "Default"),
+        aap_ee=aap.get("default_ee", ""),
+    )
+
+    (output_dir / "SKILL.md").write_text(skill_md)
+
+    scripts_dir = output_dir / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+
+    run_sh = "#!/usr/bin/env bash\nset -euo pipefail\n"
+    run_sh += 'USE_CASE="${1:?Usage: run.sh <use_case_folder> [--apply]}"\n'
+    run_sh += 'SHIFT_ARGS="${@:2}"\n'
+    run_sh += 'SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+    run_sh += 'ASSETS_DIR="$SCRIPT_DIR/../assets"\n'
+    run_sh += 'PLAYBOOK=$(find "$ASSETS_DIR/$USE_CASE" -maxdepth 1 -name "*.yml" | head -1)\n'
+    run_sh += 'if [ -z "$PLAYBOOK" ]; then echo "No playbook found in $USE_CASE"; exit 1; fi\n'
+    run_sh += 'if [[ " $SHIFT_ARGS " == *" --apply "* ]]; then\n'
+    run_sh += '  ansible-playbook "$PLAYBOOK"\n'
+    run_sh += 'else\n'
+    run_sh += '  ansible-playbook "$PLAYBOOK" --check --diff\n'
+    run_sh += 'fi\n'
+    (scripts_dir / "run.sh").write_text(run_sh)
+    (scripts_dir / "run.sh").chmod(0o755)
+
+    check_sh = "#!/usr/bin/env bash\nset -euo pipefail\n"
+    check_sh += 'command -v ansible-playbook >/dev/null 2>&1 || { echo "ansible-core not found"; exit 1; }\n'
+    check_sh += 'echo "ansible-playbook: $(ansible-playbook --version | head -1)"\n'
+    check_sh += 'if [ -n "${AAP_CONTROLLER_URL:-}" ]; then\n'
+    check_sh += '  echo "AAP Controller: $AAP_CONTROLLER_URL"\n'
+    check_sh += '  curl -sf -o /dev/null -H "Authorization: Bearer ${AAP_CONTROLLER_TOKEN}" "${AAP_CONTROLLER_URL}/api/v2/ping/" && echo "AAP: reachable" || echo "AAP: unreachable"\n'
+    check_sh += 'fi\n'
+    (scripts_dir / "check.sh").write_text(check_sh)
+    (scripts_dir / "check.sh").chmod(0o755)
+
+    assets_dir = output_dir / "assets"
+    assets_dir.mkdir(exist_ok=True)
+
+    for uc in selected:
+        src = _starter_pack_dir / uc["name"]
+        dst = assets_dir / uc["name"]
+        if src.is_dir():
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+
+    _sp_logger.info("Router skill generated: %s (%d use cases)", output_dir, len(selected))
+
+    return {
+        "success": True,
+        "skill_name": dir_name,
+        "output_dir": str(output_dir),
+        "use_case_count": len(selected),
+        "target": target,
+    }
+
+
+# --- Starter Pack API endpoints ---
+
+@app.get("/starter-pack")
+async def starter_pack_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        request,
+        "starter_pack.html",
+        {
+            "page": "starter-pack",
+            "use_cases": _starter_pack_use_cases,
+            "has_upload": _starter_pack_dir is not None,
+            "platforms": list(INSTALL_PATHS.keys()),
+        },
+    )
+
+
+@app.post("/api/starter-pack/upload")
+async def api_starter_pack_upload(file: UploadFile):
+    if not file.filename:
+        return JSONResponse({"success": False, "error": "No file provided"})
+
+    data = await file.read()
+    if len(data) == 0:
+        return JSONResponse({"success": False, "error": "Empty file"})
+
+    try:
+        base = _sp_extract_archive(data, file.filename)
+        cases = _sp_scan_use_cases(base)
+        return JSONResponse({
+            "success": True,
+            "use_case_count": len(cases),
+            "use_cases": cases,
+        })
+    except Exception as exc:
+        _sp_logger.error("Starter pack upload failed: %s", exc)
+        return JSONResponse({"success": False, "error": str(exc)})
+
+
+@app.get("/api/starter-pack/use-case/{name}/readme")
+async def api_starter_pack_readme(name: str):
+    if not _starter_pack_dir:
+        return JSONResponse({"error": "No starter pack uploaded"}, status_code=404)
+    uc_dir = (_starter_pack_dir / name).resolve()
+    if not str(uc_dir).startswith(str(_starter_pack_dir.resolve())):
+        return JSONResponse({"error": "Invalid path"}, status_code=400)
+    for rn in ("README.md", "readme.md", "README.txt", "README"):
+        rp = uc_dir / rn
+        if rp.is_file():
+            return Response(rp.read_text(errors="replace"), media_type="text/plain")
+    return Response("No README found.", media_type="text/plain")
+
+
+@app.get("/api/starter-pack/use-case/{name}/file/{path:path}")
+async def api_starter_pack_file(name: str, path: str):
+    if not _starter_pack_dir:
+        return JSONResponse({"error": "No starter pack uploaded"}, status_code=404)
+    file_path = (_starter_pack_dir / name / path).resolve()
+    if not str(file_path).startswith(str(_starter_pack_dir.resolve())):
+        return JSONResponse({"error": "Invalid path"}, status_code=400)
+    if not file_path.is_file():
+        return JSONResponse({"error": "File not found"}, status_code=404)
+    try:
+        content = file_path.read_text(errors="replace")
+        return Response(content, media_type="text/plain")
+    except Exception:
+        return JSONResponse({"error": "Cannot read file"}, status_code=400)
+
+
+@app.post("/api/starter-pack/generate")
+async def api_starter_pack_generate(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid JSON"})
+
+    skill_name = body.get("skill_name", "starter_pack")
+    selected = body.get("selected_use_cases", [])
+    target = body.get("target", "project")
+    custom_path = body.get("custom_path", "")
+
+    result = _sp_generate_router_skill(skill_name, selected, target, custom_path)
+    return JSONResponse(result)

@@ -1,0 +1,130 @@
+---
+name: {{ skill_name | replace('_', '-') }}
+description: >-
+  Router skill bundling {{ use_cases | length }} Ansible use case(s) from a starter pack.
+  Match the user request to the right use case and execute the corresponding playbook.
+---
+
+# {{ skill_name | replace('_', ' ') | title }}
+
+This is a **router skill** that bundles {{ use_cases | length }} pre-built Ansible use case(s). Each use case contains a ready-to-run playbook with supporting templates and configuration.
+
+**Your job as an AI agent:** When the user describes a task, match it to the most relevant use case below and follow the execution instructions for that use case.
+
+---
+
+## Use Case Catalog
+
+| # | Use Case | Category | Playbook | Description |
+|---|----------|----------|----------|-------------|
+{% for uc in use_cases -%}
+| {{ loop.index }} | {{ uc.name }} | {{ uc.category }} | `{{ uc.playbooks[0] }}` | {{ uc.description[:100] }}{% if uc.description | length > 100 %}...{% endif %} |
+{% endfor %}
+
+---
+
+## Routing Guide
+
+When the user asks for help, follow these steps:
+
+1. **Identify intent** — Read the user request and determine which category it falls under:
+{% for cat in categories %}   - **{{ cat }}**: {{ categories_map[cat] | map(attribute='name') | join(', ') }}
+{% endfor %}
+2. **Select the use case** — Match keywords in the request to the use case names and descriptions above. If ambiguous, ask the user to clarify.
+3. **Review the playbook** — Read the use case's README and playbook in `assets/<use_case>/` before running.
+4. **Execute** — Follow the execution instructions below (CLI or AAP mode).
+
+---
+{% for cat in categories %}
+
+## {{ cat }}
+{% for uc in categories_map[cat] %}
+
+### {{ uc.name }}
+
+{% if uc.description %}{{ uc.description }}{% endif %}
+
+**Playbook(s):** {% for pb in uc.playbooks %}`assets/{{ uc.name }}/{{ pb }}`{% if not loop.last %}, {% endif %}{% endfor %}
+
+{% if uc.templates %}**Templates:** {% for t in uc.templates %}`assets/{{ uc.name }}/{{ t }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+{% if uc.other_files %}**Other files:** {% for f in uc.other_files %}`assets/{{ uc.name }}/{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+
+{% if uc.readme %}
+<details>
+<summary>README (click to expand)</summary>
+
+{{ uc.readme }}
+
+</details>
+{% endif %}
+{% endfor %}
+{% endfor %}
+
+---
+
+## Execution
+{% if aap_configured %}
+
+### AAP Mode (Production)
+
+This skill is configured for **Ansible Automation Platform** execution.
+
+| Setting | Value |
+|---------|-------|
+| Controller URL | `{{ aap_url }}` |
+{% if aap_project %}| Project | `{{ aap_project }}` |
+{% endif %}{% if aap_inventory %}| Default Inventory | `{{ aap_inventory }}` |
+{% endif %}{% if aap_credential %}| Default Credential | `{{ aap_credential }}` |
+{% endif %}{% if aap_organization %}| Organization | `{{ aap_organization }}` |
+{% endif %}{% if aap_ee %}| Execution Environment | `{{ aap_ee }}` |
+{% endif %}
+
+**To deploy a use case through AAP:**
+
+1. Ensure the playbook files are in the AAP Project's Git repository under `assets/<use_case>/`
+2. Create a Job Template in AAP pointing to the use case playbook:
+   - **Playbook**: `assets/<use_case>/<playbook>.yml`
+   - **Inventory**: Select the target inventory
+   - **Credential**: Select the appropriate Machine credential
+3. Launch the Job Template from the AAP Controller
+
+**Using `AAP_CONTROLLER_TOKEN` environment variable:**
+
+```bash
+export AAP_CONTROLLER_URL="{{ aap_url }}"
+export AAP_CONTROLLER_TOKEN="<your-token>"
+```
+{% endif %}
+
+### CLI Mode (Dev/Test)
+
+Run any use case playbook locally:
+
+```bash
+# Dry-run (safe, no changes)
+bash scripts/run.sh <use_case_folder>
+
+# Apply changes
+bash scripts/run.sh <use_case_folder> --apply
+
+# Or run directly
+ansible-playbook assets/<use_case_folder>/<playbook>.yml --check --diff
+ansible-playbook assets/<use_case_folder>/<playbook>.yml
+```
+
+**Check prerequisites:**
+
+```bash
+bash scripts/check.sh
+```
+
+---
+
+## Safety
+
+- Always run in **dry-run** mode first (`--check --diff` or omit `--apply`)
+- Review the playbook and README for each use case before execution
+- Ensure your inventory targets the correct hosts
+- In AAP mode, use the Controller's approval workflows for production changes

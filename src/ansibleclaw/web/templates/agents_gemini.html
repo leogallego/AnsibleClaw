@@ -46,41 +46,47 @@
             <div style="display:flex;gap:0.5rem;margin-left:0.75rem;">
                 <button type="button" class="pf-v6-c-button pf-m-primary" id="gemini-launch-btn">Launch</button>
                 <button type="button" class="pf-v6-c-button pf-m-danger" id="gemini-stop-btn" style="display:none;">Stop</button>
-                <button type="button" class="pf-v6-c-button pf-m-plain" id="gemini-clear-btn" title="Clear terminal">Clear</button>
             </div>
         </div>
-        <div id="gemini-terminal" class="ac-terminal"></div>
+        <div id="gemini-terminal" class="ac-terminal" style="position:relative;">
+            <div id="gemini-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--pf-t--global--text--color--subtle);font-size:0.95rem;">
+                Click <strong style="margin:0 0.25rem;">Launch</strong> to start a Gemini CLI session.
+            </div>
+        </div>
     </div>
 </div>
 
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.min.css">
-<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0/lib/addon-fit.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0/lib/addon-web-links.min.js"></script>
-
 <script>
 (function() {
-    var term = null;
-    var ws = null;
-    var fitAddon = null;
-    var dataDisposable = null;
-    var resizeDisposable = null;
-    var isReconnecting = false;
-
     var ttydWarning = document.getElementById('gemini-ttyd-warning');
     var notInstalled = document.getElementById('gemini-not-installed');
     var termSection = document.getElementById('gemini-terminal-section');
     var launchBtn = document.getElementById('gemini-launch-btn');
     var stopBtn = document.getElementById('gemini-stop-btn');
-    var clearBtn = document.getElementById('gemini-clear-btn');
     var cwdInput = document.getElementById('gemini-cwd');
+    var termContainer = document.getElementById('gemini-terminal');
+    var placeholder = document.getElementById('gemini-placeholder');
+    var iframe = null;
 
     function setSessionActive(active) {
         launchBtn.style.display = active ? 'none' : '';
         stopBtn.style.display = active ? '' : 'none';
         cwdInput.disabled = active;
-        if (active) cwdInput.style.opacity = '0.5';
-        else cwdInput.style.opacity = '';
+        cwdInput.style.opacity = active ? '0.5' : '';
+    }
+
+    function showIframe(port) {
+        if (iframe) iframe.remove();
+        placeholder.style.display = 'none';
+        iframe = document.createElement('iframe');
+        iframe.src = 'http://127.0.0.1:' + port;
+        iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+        termContainer.appendChild(iframe);
+    }
+
+    function removeIframe() {
+        if (iframe) { iframe.remove(); iframe = null; }
+        placeholder.style.display = '';
     }
 
     function checkStatus() {
@@ -97,14 +103,9 @@
                     notInstalled.style.display = '';
                 } else {
                     termSection.style.display = '';
-                    initTerminal();
                     if (data.ttyd_running) {
-                        isReconnecting = true;
-                        term.writeln('\x1b[36mReconnecting to existing Gemini session (port ' + data.ttyd_port + ')...\x1b[0m');
-                        term.writeln('\x1b[2m(Previous output is not available — the session is still active)\x1b[0m');
-                        term.writeln('');
                         setSessionActive(true);
-                        connectWebSocket();
+                        showIframe(data.ttyd_port);
                     }
                 }
             })
@@ -113,70 +114,8 @@
             });
     }
 
-    function initTerminal() {
-        if (term) return;
-
-        term = new Terminal({
-            cursorBlink: true,
-            cursorStyle: 'block',
-            fontSize: 14,
-            fontFamily: "'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace",
-            theme: {
-                background: '#1a1a2e',
-                foreground: '#e4e4e7',
-                cursor: '#f59e0b',
-                cursorAccent: '#1a1a2e',
-                selection: 'rgba(139, 92, 246, 0.3)',
-                black: '#27272a',
-                red: '#ef4444',
-                green: '#10b981',
-                yellow: '#f59e0b',
-                blue: '#3b82f6',
-                magenta: '#8b5cf6',
-                cyan: '#06b6d4',
-                white: '#e4e4e7',
-                brightBlack: '#52525b',
-                brightRed: '#f87171',
-                brightGreen: '#34d399',
-                brightYellow: '#fbbf24',
-                brightBlue: '#60a5fa',
-                brightMagenta: '#a78bfa',
-                brightCyan: '#22d3ee',
-                brightWhite: '#fafafa'
-            },
-            allowTransparency: true,
-            scrollback: 10000
-        });
-
-        if (typeof FitAddon !== 'undefined') {
-            fitAddon = new FitAddon.FitAddon();
-            term.loadAddon(fitAddon);
-        }
-
-        if (typeof WebLinksAddon !== 'undefined') {
-            term.loadAddon(new WebLinksAddon.WebLinksAddon());
-        }
-
-        var container = document.getElementById('gemini-terminal');
-        term.open(container);
-        fitTerminal();
-        term.focus();
-
-        container.addEventListener('click', function() { term.focus(); });
-
-        term.writeln('\x1b[36mGemini CLI terminal ready. Click \x1b[1mLaunch\x1b[22m to start.\x1b[0m');
-    }
-
-    function fitTerminal() {
-        if (fitAddon) {
-            try { fitAddon.fit(); } catch(e) {}
-        }
-    }
-
     function launchTerminal() {
         launchBtn.disabled = true;
-        isReconnecting = false;
-        term.writeln('\x1b[33mStarting Gemini CLI...\x1b[0m');
 
         fetch('/api/agents/gemini/start-terminal', {
             method: 'POST',
@@ -185,162 +124,39 @@
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
+            launchBtn.disabled = false;
             if (!data.success) {
-                term.writeln('\x1b[31mFailed: ' + (data.error || 'Unknown error') + '\x1b[0m');
-                if (data.install_instructions) {
-                    term.writeln('');
-                    term.writeln('\x1b[33mInstall ttyd:\x1b[0m');
-                    term.writeln('  macOS: ' + data.install_instructions.macos);
-                    term.writeln('  Ubuntu: ' + data.install_instructions.ubuntu);
-                }
-                launchBtn.disabled = false;
+                alert(data.error || 'Failed to start terminal');
                 setSessionActive(false);
                 return;
             }
-            if (data.already_running) {
-                isReconnecting = true;
-                term.writeln('\x1b[32mttyd already running on port ' + data.port + '\x1b[0m');
-            } else {
-                term.writeln('\x1b[32mttyd started on port ' + data.port + '\x1b[0m');
-            }
-            term.writeln('\x1b[36mConnecting...\x1b[0m');
-            term.writeln('');
             setSessionActive(true);
-            connectWebSocket();
+            showIframe(data.port);
         })
         .catch(function(err) {
-            term.writeln('\x1b[31mError: ' + err.message + '\x1b[0m');
             launchBtn.disabled = false;
             setSessionActive(false);
-        });
-    }
-
-    function connectWebSocket() {
-        if (dataDisposable) { dataDisposable.dispose(); dataDisposable = null; }
-        if (resizeDisposable) { resizeDisposable.dispose(); resizeDisposable = null; }
-        if (ws) { ws.close(); ws = null; }
-
-        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var wsUrl = protocol + '//' + window.location.host + '/ws/gemini';
-
-        ws = new WebSocket(wsUrl);
-        ws.binaryType = 'arraybuffer';
-
-        ws.onopen = function() {
-            var encoder = new TextEncoder();
-
-            var authMsg = JSON.stringify({ AuthToken: "" });
-            ws.send(encoder.encode(authMsg));
-
-            setSessionActive(true);
-
-            setTimeout(function() {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    fitTerminal();
-                    if (term) {
-                        var cols = term.cols;
-                        var rows = term.rows;
-                        var resizeData = JSON.stringify({ columns: cols, rows: rows });
-                        var jsonData = encoder.encode(resizeData);
-                        var message = new Uint8Array(jsonData.length + 1);
-                        message[0] = 49;
-                        message.set(jsonData, 1);
-                        ws.send(message);
-                    }
-
-                    if (isReconnecting) {
-                        var nl = encoder.encode("\n");
-                        var nudge = new Uint8Array(nl.length + 1);
-                        nudge[0] = 48;
-                        nudge.set(nl, 1);
-                        ws.send(nudge);
-                        isReconnecting = false;
-                    }
-
-                    term.focus();
-                }
-            }, 200);
-        };
-
-        ws.onmessage = function(event) {
-            if (event.data instanceof ArrayBuffer) {
-                var data = new Uint8Array(event.data);
-                if (data.length === 0) return;
-                var msgType = data[0];
-                var payload = data.slice(1);
-                if (msgType === 48) {
-                    term.write(new TextDecoder().decode(payload));
-                }
-            } else if (typeof event.data === 'string') {
-                term.write(event.data);
-            }
-        };
-
-        ws.onclose = function() {
-            term.writeln('');
-            term.writeln('\x1b[33mConnection closed.\x1b[0m');
-            ws = null;
-            setSessionActive(false);
-            launchBtn.disabled = false;
-        };
-
-        ws.onerror = function() {
-            term.writeln('\x1b[31mWebSocket error\x1b[0m');
-        };
-
-        dataDisposable = term.onData(function(input) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                var encoder = new TextEncoder();
-                var inputData = encoder.encode(input);
-                var message = new Uint8Array(inputData.length + 1);
-                message[0] = 48;
-                message.set(inputData, 1);
-                ws.send(message);
-            }
-        });
-
-        resizeDisposable = term.onResize(function(size) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                var encoder = new TextEncoder();
-                var resizeData = JSON.stringify({ columns: size.cols, rows: size.rows });
-                var jsonData = encoder.encode(resizeData);
-                var message = new Uint8Array(jsonData.length + 1);
-                message[0] = 49;
-                message.set(jsonData, 1);
-                ws.send(message);
-            }
+            alert('Error: ' + err.message);
         });
     }
 
     function stopTerminal() {
         stopBtn.disabled = true;
-        term.writeln('\x1b[33mStopping Gemini session...\x1b[0m');
-
-        if (ws) { ws.close(); ws = null; }
-
         fetch('/api/agents/gemini/stop-terminal', { method: 'POST' })
             .then(function(r) { return r.json(); })
-            .then(function(data) {
-                term.writeln('\x1b[32m' + (data.message || 'Session stopped.') + '\x1b[0m');
-                term.writeln('');
-                term.writeln('\x1b[36mClick \x1b[1mLaunch\x1b[22m to start a new session.\x1b[0m');
+            .then(function() {
+                removeIframe();
                 setSessionActive(false);
                 stopBtn.disabled = false;
                 launchBtn.disabled = false;
             })
             .catch(function() {
-                term.writeln('\x1b[31mFailed to stop session.\x1b[0m');
                 stopBtn.disabled = false;
             });
     }
 
     launchBtn.addEventListener('click', launchTerminal);
     stopBtn.addEventListener('click', stopTerminal);
-    clearBtn.addEventListener('click', function() { if (term) term.clear(); });
-
-    window.addEventListener('resize', function() {
-        if (term && fitAddon) fitTerminal();
-    });
 
     checkStatus();
 })();

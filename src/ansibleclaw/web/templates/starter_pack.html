@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Starter Pack{% endblock %}
+
+{% block content %}
+<div class="ac-page-header">
+    <h2>Starter Pack</h2>
+    <p>Upload an Ansible starter pack archive to browse use cases, preview playbooks, and generate a router skill.</p>
+</div>
+
+{# --- Phase 1: Upload --- #}
+<div id="sp-upload-section">
+    <div class="ac-starter-upload" id="sp-drop-zone">
+        <div class="ac-starter-upload__content">
+            <div style="font-size:2rem;margin-bottom:0.75rem;opacity:0.5;">&#128230;</div>
+            <p style="margin:0 0 0.75rem;font-size:1rem;">Drop a starter pack archive here, or click to browse</p>
+            <p style="margin:0;font-size:0.85rem;color:var(--pf-t--global--text--color--subtle);">Supports .zip, .tar.gz, .tgz</p>
+            <input type="file" id="sp-file-input" accept=".zip,.tar.gz,.tgz,.tar.bz2,.tar" style="display:none;">
+            <button type="button" class="pf-v6-c-button pf-m-primary" id="sp-browse-btn" style="margin-top:1rem;">Browse Files</button>
+        </div>
+        <div id="sp-upload-status" style="display:none;margin-top:1rem;"></div>
+    </div>
+</div>
+
+{# --- Phase 2: Browse use cases --- #}
+<div id="sp-browse-section" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+        <h3 style="margin:0;" id="sp-summary"></h3>
+        <button type="button" class="pf-v6-c-button pf-m-secondary" id="sp-upload-new-btn">Upload New</button>
+    </div>
+
+    <div id="sp-categories"></div>
+
+    {# --- Phase 3: Generate --- #}
+    <div id="sp-generate-section" class="pf-v6-c-card" style="margin-top:1.5rem;padding:1.5rem;">
+        <h3 style="margin:0 0 1rem;">Generate Router Skill</h3>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-end;">
+            <div style="flex:1;min-width:200px;">
+                <label for="sp-skill-name" style="display:block;margin-bottom:0.25rem;font-size:0.85rem;">Skill Name</label>
+                <span class="pf-v6-c-form-control">
+                    <input type="text" id="sp-skill-name" value="starter_pack" placeholder="e.g., linux_ops_pack">
+                </span>
+            </div>
+            <div style="min-width:160px;">
+                <label for="sp-target" style="display:block;margin-bottom:0.25rem;font-size:0.85rem;">Target</label>
+                <span class="pf-v6-c-form-control">
+                    <select id="sp-target">
+                        <option value="project">Project (skills/)</option>
+                        {% for p in platforms %}<option value="{{ p }}">{{ p | capitalize }}</option>{% endfor %}
+                        <option value="custom">Custom path</option>
+                    </select>
+                </span>
+            </div>
+            <div id="sp-custom-path-group" style="flex:1;min-width:200px;display:none;">
+                <label for="sp-custom-path" style="display:block;margin-bottom:0.25rem;font-size:0.85rem;">Custom Path</label>
+                <span class="pf-v6-c-form-control">
+                    <input type="text" id="sp-custom-path" placeholder="/path/to/skills/">
+                </span>
+            </div>
+            <button type="button" class="pf-v6-c-button pf-m-primary" id="sp-generate-btn" disabled>
+                Generate Router Skill (<span id="sp-selected-count">0</span> selected)
+            </button>
+        </div>
+        <div id="sp-generate-result" style="margin-top:1rem;"></div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var useCases = [];
+    var fileInput = document.getElementById('sp-file-input');
+    var dropZone = document.getElementById('sp-drop-zone');
+    var browseBtn = document.getElementById('sp-browse-btn');
+    var uploadStatus = document.getElementById('sp-upload-status');
+    var uploadSection = document.getElementById('sp-upload-section');
+    var browseSection = document.getElementById('sp-browse-section');
+    var categoriesDiv = document.getElementById('sp-categories');
+    var summaryEl = document.getElementById('sp-summary');
+    var generateBtn = document.getElementById('sp-generate-btn');
+    var selectedCountEl = document.getElementById('sp-selected-count');
+    var targetSelect = document.getElementById('sp-target');
+    var customPathGroup = document.getElementById('sp-custom-path-group');
+
+    browseBtn.addEventListener('click', function() { fileInput.click(); });
+
+    dropZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        dropZone.classList.add('ac-starter-upload--dragover');
+    });
+    dropZone.addEventListener('dragleave', function() {
+        dropZone.classList.remove('ac-starter-upload--dragover');
+    });
+    dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        dropZone.classList.remove('ac-starter-upload--dragover');
+        if (e.dataTransfer.files.length > 0) {
+            uploadFile(e.dataTransfer.files[0]);
+        }
+    });
+
+    fileInput.addEventListener('change', function() {
+        if (fileInput.files.length > 0) uploadFile(fileInput.files[0]);
+    });
+
+    targetSelect.addEventListener('change', function() {
+        customPathGroup.style.display = targetSelect.value === 'custom' ? '' : 'none';
+    });
+
+    document.getElementById('sp-upload-new-btn').addEventListener('click', function() {
+        browseSection.style.display = 'none';
+        uploadSection.style.display = '';
+        uploadStatus.style.display = 'none';
+        fileInput.value = '';
+    });
+
+    function uploadFile(file) {
+        uploadStatus.style.display = '';
+        uploadStatus.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Uploading and scanning ' + file.name + '...</span>';
+
+        var formData = new FormData();
+        formData.append('file', file);
+
+        fetch('/api/starter-pack/upload', { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) {
+                    uploadStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">' + (data.error || 'Upload failed') + '</span>';
+                    return;
+                }
+                useCases = data.use_cases;
+                if (useCases.length === 0) {
+                    uploadStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--warning--default);">No use cases found in the archive. Each use case folder must contain at least one .yml playbook file.</span>';
+                    return;
+                }
+                renderBrowse();
+            })
+            .catch(function(err) {
+                uploadStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">Error: ' + err.message + '</span>';
+            });
+    }
+
+    function renderBrowse() {
+        uploadSection.style.display = 'none';
+        browseSection.style.display = '';
+        summaryEl.textContent = useCases.length + ' use case(s) found';
+
+        var cats = {};
+        var catOrder = [];
+        useCases.forEach(function(uc) {
+            if (!cats[uc.category]) {
+                cats[uc.category] = [];
+                catOrder.push(uc.category);
+            }
+            cats[uc.category].push(uc);
+        });
+
+        var html = '';
+        catOrder.forEach(function(cat) {
+            var catId = cat.replace(/[^a-zA-Z0-9]/g, '_');
+            html += '<div class="ac-category-group">';
+            html += '<div class="ac-category-group__header">';
+            html += '<button type="button" class="ac-category-group__toggle sp-cat-fold" data-cat-id="' + catId + '" title="Collapse section">\u25BC</button>';
+            html += '<h4 style="margin:0;flex:1;cursor:pointer;" class="sp-cat-fold-label" data-cat-id="' + catId + '">' + cat + ' (' + cats[cat].length + ')</h4>';
+            html += '<label class="ac-category-group__select-all"><input type="checkbox" class="sp-cat-toggle" data-cat="' + cat + '"> Select All</label>';
+            html += '</div>';
+            html += '<div class="ac-category-group__body" id="sp-cat-body-' + catId + '">';
+            cats[cat].forEach(function(uc) {
+                html += '<div class="ac-use-case-card">';
+                html += '<div class="ac-use-case-card__header">';
+                html += '<label style="display:flex;align-items:center;gap:0.5rem;flex:1;min-width:0;cursor:pointer;">';
+                html += '<input type="checkbox" class="sp-uc-check" data-name="' + uc.name + '" data-cat="' + cat + '">';
+                html += '<strong style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + uc.name + '</strong>';
+                html += '</label>';
+                html += '<span style="font-size:0.8rem;color:var(--pf-t--global--text--color--subtle);white-space:nowrap;">';
+                html += uc.playbooks.length + ' playbook(s)';
+                if (uc.templates.length) html += ', ' + uc.templates.length + ' template(s)';
+                html += '</span>';
+                html += '<button type="button" class="pf-v6-c-button pf-m-plain sp-expand-btn" data-name="' + uc.name + '" title="Preview">&#9660;</button>';
+                html += '</div>';
+                if (uc.description) {
+                    html += '<div class="ac-use-case-card__desc">' + escapeHtml(uc.description) + '</div>';
+                }
+                html += '<div class="ac-use-case-preview" id="sp-preview-' + uc.name + '" style="display:none;"></div>';
+                html += '</div>';
+            });
+            html += '</div>';
+            html += '</div>';
+        });
+
+        categoriesDiv.innerHTML = html;
+
+        categoriesDiv.querySelectorAll('.sp-cat-toggle').forEach(function(cb) {
+            cb.addEventListener('change', function() {
+                var cat = cb.dataset.cat;
+                var checked = cb.checked;
+                categoriesDiv.querySelectorAll('.sp-uc-check[data-cat="' + cat + '"]').forEach(function(ucCb) {
+                    ucCb.checked = checked;
+                });
+                updateSelectedCount();
+            });
+        });
+
+        categoriesDiv.querySelectorAll('.sp-uc-check').forEach(function(cb) {
+            cb.addEventListener('change', updateSelectedCount);
+        });
+
+        function toggleCategory(catId) {
+            var body = document.getElementById('sp-cat-body-' + catId);
+            var arrows = categoriesDiv.querySelectorAll('.sp-cat-fold[data-cat-id="' + catId + '"]');
+            if (body.style.display === 'none') {
+                body.style.display = '';
+                arrows.forEach(function(a) { a.textContent = '\u25BC'; a.title = 'Collapse section'; });
+            } else {
+                body.style.display = 'none';
+                arrows.forEach(function(a) { a.textContent = '\u25B6'; a.title = 'Expand section'; });
+            }
+        }
+
+        categoriesDiv.querySelectorAll('.sp-cat-fold').forEach(function(btn) {
+            btn.addEventListener('click', function() { toggleCategory(btn.dataset.catId); });
+        });
+        categoriesDiv.querySelectorAll('.sp-cat-fold-label').forEach(function(lbl) {
+            lbl.addEventListener('click', function() { toggleCategory(lbl.dataset.catId); });
+        });
+
+        categoriesDiv.querySelectorAll('.sp-expand-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var name = btn.dataset.name;
+                var panel = document.getElementById('sp-preview-' + name);
+                if (panel.style.display === 'none') {
+                    loadPreview(name, panel);
+                    panel.style.display = '';
+                    btn.textContent = '\u25B2';
+                } else {
+                    panel.style.display = 'none';
+                    btn.textContent = '\u25BC';
+                }
+            });
+        });
+
+        updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+        var checked = categoriesDiv.querySelectorAll('.sp-uc-check:checked');
+        var count = checked.length;
+        selectedCountEl.textContent = count;
+        generateBtn.disabled = count === 0;
+    }
+
+    function loadPreview(name, panel) {
+        if (panel.dataset.loaded) return;
+        panel.dataset.loaded = '1';
+        panel.innerHTML = '<div style="padding:0.75rem;color:var(--pf-t--global--text--color--subtle);">Loading...</div>';
+
+        var uc = useCases.find(function(u) { return u.name === name; });
+
+        fetch('/api/starter-pack/use-case/' + encodeURIComponent(name) + '/readme')
+            .then(function(r) { return r.text(); })
+            .then(function(readme) {
+                var html = '';
+                if (readme && readme !== 'No README found.') {
+                    html += '<div class="ac-use-case-preview__section"><h5>README</h5><pre class="ac-use-case-preview__code">' + escapeHtml(readme) + '</pre></div>';
+                }
+
+                var files = [].concat(uc.playbooks, uc.templates, uc.other_files);
+                if (files.length) {
+                    html += '<div class="ac-use-case-preview__section"><h5>Files</h5>';
+                    files.forEach(function(f) {
+                        html += '<div class="ac-use-case-preview__file">';
+                        html += '<button type="button" class="pf-v6-c-button pf-m-link sp-file-btn" data-uc="' + name + '" data-file="' + f + '">' + escapeHtml(f) + '</button>';
+                        html += '<div class="ac-use-case-preview__file-content" id="sp-file-' + name + '-' + f.replace(/[^a-zA-Z0-9]/g, '_') + '" style="display:none;"></div>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                }
+
+                panel.innerHTML = html || '<div style="padding:0.75rem;color:var(--pf-t--global--text--color--subtle);">No preview available.</div>';
+
+                panel.querySelectorAll('.sp-file-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var fileId = 'sp-file-' + btn.dataset.uc + '-' + btn.dataset.file.replace(/[^a-zA-Z0-9]/g, '_');
+                        var container = document.getElementById(fileId);
+                        if (container.style.display !== 'none') {
+                            container.style.display = 'none';
+                            return;
+                        }
+                        if (container.dataset.loaded) {
+                            container.style.display = '';
+                            return;
+                        }
+                        container.dataset.loaded = '1';
+                        container.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Loading...</span>';
+                        container.style.display = '';
+                        fetch('/api/starter-pack/use-case/' + encodeURIComponent(btn.dataset.uc) + '/file/' + encodeURIComponent(btn.dataset.file))
+                            .then(function(r) { return r.text(); })
+                            .then(function(content) {
+                                container.innerHTML = '<pre class="ac-use-case-preview__code">' + escapeHtml(content) + '</pre>';
+                            });
+                    });
+                });
+            });
+    }
+
+    generateBtn.addEventListener('click', function() {
+        var selected = [];
+        categoriesDiv.querySelectorAll('.sp-uc-check:checked').forEach(function(cb) {
+            selected.push(cb.dataset.name);
+        });
+        if (selected.length === 0) return;
+
+        var skillName = document.getElementById('sp-skill-name').value.trim() || 'starter_pack';
+        var target = targetSelect.value;
+        var customPath = document.getElementById('sp-custom-path').value.trim();
+
+        generateBtn.disabled = true;
+        var resultDiv = document.getElementById('sp-generate-result');
+        resultDiv.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Generating router skill...</span>';
+
+        fetch('/api/starter-pack/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                skill_name: skillName,
+                selected_use_cases: selected,
+                target: target,
+                custom_path: customPath
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            generateBtn.disabled = false;
+            if (!data.success) {
+                resultDiv.innerHTML = '<div class="pf-v6-c-alert pf-m-danger" style="margin-top:0.5rem;"><div class="pf-v6-c-alert__title">' + (data.error || 'Generation failed') + '</div></div>';
+                return;
+            }
+            var msg = '<div class="pf-v6-c-alert pf-m-success" style="margin-top:0.5rem;">';
+            msg += '<div class="pf-v6-c-alert__title">Router skill generated with ' + data.use_case_count + ' use case(s)</div>';
+            msg += '<div class="pf-v6-c-alert__description">';
+            msg += '<p>Output: <code>' + escapeHtml(data.output_dir) + '</code></p>';
+            if (data.target === 'project') {
+                msg += '<p><a href="/skills/' + encodeURIComponent(data.skill_name) + '">View in Skills Library</a>';
+                msg += ' | <a href="/skills/' + encodeURIComponent(data.skill_name) + '/download">Download ZIP</a></p>';
+            }
+            msg += '</div></div>';
+            resultDiv.innerHTML = msg;
+        })
+        .catch(function(err) {
+            generateBtn.disabled = false;
+            resultDiv.innerHTML = '<div class="pf-v6-c-alert pf-m-danger" style="margin-top:0.5rem;"><div class="pf-v6-c-alert__title">Error: ' + err.message + '</div></div>';
+        });
+    });
+
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    {% if has_upload and use_cases | length > 0 %}
+    useCases = {{ use_cases | tojson }};
+    renderBrowse();
+    {% else %}
+    uploadSection.style.display = '';
+    browseSection.style.display = 'none';
+    {% endif %}
+})();
+</script>
+{% endblock %}

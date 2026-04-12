@@ -72,7 +72,7 @@ class AAPClient:
         req = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             with urllib.request.urlopen(
-                req, context=self._ssl_ctx(), timeout=30,
+                req, context=self._ssl_ctx(), timeout=10,
             ) as resp:
                 raw = resp.read().decode()
                 return json.loads(raw) if raw.strip() else {}
