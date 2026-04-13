@@ -72,19 +72,22 @@
         </div>
         <div id="dt-ai-status" style="display:none;font-size:0.8rem;margin-top:0.5rem;"></div>
 
-        {# --- AI Configuration Panel (hidden by default) --- #}
-        <div id="dt-ai-config-panel" style="display:none;margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--pf-t--global--border--color--default);">
+        {# --- AI Configuration Panel --- #}
+        <div id="dt-ai-config-panel" style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--pf-t--global--border--color--default);">
             <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.5rem;">AI Endpoint Configuration</div>
             <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;">
                 <div style="flex:2;min-width:14rem;">
                     <label for="dt-ai-endpoint" style="font-size:0.8rem;color:var(--pf-t--global--text--color--subtle);display:block;margin-bottom:0.25rem;">Endpoint (OpenAI-compatible)</label>
-                    <span class="pf-v6-c-form-control">
-                        <input type="text" id="dt-ai-endpoint" placeholder="http://localhost:8000/v1" style="font-size:0.85rem;">
-                    </span>
+                    <div style="display:flex;gap:0.375rem;align-items:center;">
+                        <span class="pf-v6-c-form-control" style="flex:1;">
+                            <input type="text" id="dt-ai-endpoint" placeholder="http://localhost:8000/v1" style="font-size:0.85rem;">
+                        </span>
+                        <button type="button" class="pf-v6-c-button pf-m-secondary pf-m-small" id="dt-ai-retrieve-btn" title="Retrieve model list from endpoint">Retrieve</button>
+                    </div>
                 </div>
                 <div style="flex:1;min-width:8rem;">
                     <label for="dt-ai-model" style="font-size:0.8rem;color:var(--pf-t--global--text--color--subtle);display:block;margin-bottom:0.25rem;">Model</label>
-                    <span class="pf-v6-c-form-control">
+                    <span class="pf-v6-c-form-control" id="dt-ai-model-wrapper">
                         <input type="text" id="dt-ai-model" placeholder="default" style="font-size:0.85rem;">
                     </span>
                 </div>
@@ -169,6 +172,8 @@
     var aiModelInput = document.getElementById('dt-ai-model');
     var aiApikeyInput = document.getElementById('dt-ai-apikey');
     var aiSaveBtn = document.getElementById('dt-ai-save-btn');
+    var aiRetrieveBtn = document.getElementById('dt-ai-retrieve-btn');
+    var aiModelWrapper = document.getElementById('dt-ai-model-wrapper');
     var aiConfigStatus = document.getElementById('dt-ai-config-status');
 
     /* Inventory toggle */
@@ -228,15 +233,99 @@
             if (d.saved) {
                 aiAvailable = d.available;
                 aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--success--default);">Saved' + (d.available ? '' : ' (no endpoint set)') + '</span>';
-                if (d.available) {
-                    setTimeout(function() { aiConfigPanel.style.display = 'none'; }, 1000);
-                }
             } else {
                 aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">Save failed</span>';
             }
         })
         .catch(function(err) {
             aiSaveBtn.disabled = false;
+            aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">Error: ' + escapeHtml(err.message) + '</span>';
+        });
+    });
+
+    /* Retrieve model list from endpoint */
+    aiRetrieveBtn.addEventListener('click', function() {
+        var endpoint = aiEndpointInput.value.trim();
+        if (!endpoint) {
+            aiEndpointInput.focus();
+            aiEndpointInput.style.outline = '2px solid var(--pf-t--global--color--status--warning--default)';
+            setTimeout(function() { aiEndpointInput.style.outline = ''; }, 1500);
+            return;
+        }
+
+        aiRetrieveBtn.disabled = true;
+        aiRetrieveBtn.textContent = 'Retrieving...';
+        aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--text--color--subtle);">Fetching models from endpoint...</span>';
+
+        var payload = { endpoint: endpoint };
+        var key = aiApikeyInput.value.trim();
+        if (key) payload.api_key = key;
+
+        fetch('/api/ai/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(function(r) {
+            return r.json().then(function(d) { return { ok: r.ok, data: d }; });
+        })
+        .then(function(result) {
+            aiRetrieveBtn.disabled = false;
+            aiRetrieveBtn.textContent = 'Retrieve';
+
+            if (!result.ok) {
+                if (result.data.needs_api_key) {
+                    aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--warning--default);">API key required. Enter a key and try again.</span>';
+                    aiApikeyInput.focus();
+                    aiApikeyInput.style.outline = '2px solid var(--pf-t--global--color--status--warning--default)';
+                    setTimeout(function() { aiApikeyInput.style.outline = ''; }, 2000);
+                } else {
+                    aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">' + escapeHtml(result.data.error || 'Failed to retrieve models') + '</span>';
+                }
+                return;
+            }
+
+            var models = result.data.models || [];
+            if (models.length === 0) {
+                aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--warning--default);">No models found at this endpoint.</span>';
+                return;
+            }
+
+            var currentVal = aiModelInput.value || '';
+            var select = document.createElement('select');
+            select.id = 'dt-ai-model';
+            select.style.fontSize = '0.85rem';
+
+            var emptyOpt = document.createElement('option');
+            emptyOpt.value = '';
+            emptyOpt.textContent = '-- select model --';
+            select.appendChild(emptyOpt);
+
+            models.forEach(function(m) {
+                var opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                if (m === currentVal) opt.selected = true;
+                select.appendChild(opt);
+            });
+
+            if (currentVal && models.indexOf(currentVal) === -1) {
+                var opt = document.createElement('option');
+                opt.value = currentVal;
+                opt.textContent = currentVal + ' (current)';
+                opt.selected = true;
+                select.insertBefore(opt, select.children[1]);
+            }
+
+            aiModelWrapper.innerHTML = '';
+            aiModelWrapper.appendChild(select);
+            aiModelInput = select;
+
+            aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--success--default);">Found ' + models.length + ' model' + (models.length !== 1 ? 's' : '') + '.</span>';
+        })
+        .catch(function(err) {
+            aiRetrieveBtn.disabled = false;
+            aiRetrieveBtn.textContent = 'Retrieve';
             aiConfigStatus.innerHTML = '<span style="color:var(--pf-t--global--color--status--danger--default);">Error: ' + escapeHtml(err.message) + '</span>';
         });
     });

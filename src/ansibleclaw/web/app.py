@@ -656,6 +656,51 @@ async def api_ai_save(request: Request):
     return JSONResponse({"saved": True, "available": bool(endpoint)})
 
 
+@app.post("/api/ai/models")
+async def api_ai_models(request: Request):
+    """Retrieve available models from an OpenAI-compatible endpoint."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    body = await request.json()
+    endpoint = (body.get("endpoint") or "").strip().rstrip("/")
+    api_key = (body.get("api_key") or "").strip()
+
+    if not endpoint:
+        return JSONResponse({"error": "No endpoint provided"}, status_code=400)
+
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    url = f"{endpoint}/models"
+    try:
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            return JSONResponse(
+                {"error": "Authentication required", "needs_api_key": True},
+                status_code=401,
+            )
+        return JSONResponse(
+            {"error": f"HTTP {exc.code}: {exc.reason}"}, status_code=502
+        )
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+    models: list[str] = []
+    if isinstance(data, dict) and "data" in data:
+        for m in data["data"]:
+            model_id = m.get("id") if isinstance(m, dict) else str(m)
+            if model_id:
+                models.append(model_id)
+    models.sort()
+    return JSONResponse({"models": models})
+
+
 # --- Dev/Test: playbook discovery and local execution ---
 
 _devtest_process: Optional[subprocess.Popen] = None
