@@ -155,6 +155,8 @@
 {% if aap_configured %}
 <script>
 (function() {
+    var resourcesLoaded = false;
+
     function populateSelect(selectId, data) {
         var sel = document.getElementById(selectId);
         if (!sel) return;
@@ -182,20 +184,34 @@
         }
     }
 
-    fetch('/api/aap/resources')
-        .then(function(r) { return r.json(); })
-        .then(function(all) {
-            populateSelect('aap-project', all.projects || {});
-            populateSelect('aap-ee', all.execution_environments || {});
-            populateSelect('aap-inventory', all.inventories || {});
-            populateSelect('aap-credential', all.credentials || {});
-        })
-        .catch(function() {
-            ['aap-project','aap-ee','aap-inventory','aap-credential'].forEach(function(id) {
-                var s = document.getElementById(id);
-                if (s) s.innerHTML = '<option value="">Failed to load</option>';
+    function loadResources() {
+        if (resourcesLoaded) return;
+        resourcesLoaded = true;
+        fetch('/api/aap/resources')
+            .then(function(r) { return r.json(); })
+            .then(function(all) {
+                populateSelect('aap-project', all.projects || {});
+                populateSelect('aap-ee', all.execution_environments || {});
+                populateSelect('aap-inventory', all.inventories || {});
+                populateSelect('aap-credential', all.credentials || {});
+            })
+            .catch(function() {
+                resourcesLoaded = false;
+                ['aap-project','aap-ee','aap-inventory','aap-credential'].forEach(function(id) {
+                    var s = document.getElementById(id);
+                    if (s) s.innerHTML = '<option value="">Failed to load</option>';
+                });
             });
-        });
+    }
+
+    var toggleBtn = document.getElementById('btn-toggle-deploy');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', loadResources);
+    }
+    if (document.getElementById('aap-deploy-section') &&
+        document.getElementById('aap-deploy-section').style.display !== 'none') {
+        loadResources();
+    }
 
     var form = document.getElementById('aap-deploy-form');
     if (form) {

@@ -16,10 +16,10 @@
 <table class="pf-v6-c-table pf-m-grid-md" role="grid" aria-label="Skills library">
     <thead>
         <tr role="row">
-            <th role="columnheader" scope="col">Name</th>
-            <th role="columnheader" scope="col">Description</th>
-            <th role="columnheader" scope="col">Type</th>
-            <th role="columnheader" scope="col">Actions</th>
+            <th role="columnheader" scope="col" style="white-space:nowrap;width:15%;">Name</th>
+            <th role="columnheader" scope="col" style="width:60%;">Description</th>
+            <th role="columnheader" scope="col" style="white-space:nowrap;width:8%;">Type</th>
+            <th role="columnheader" scope="col" style="white-space:nowrap;">Actions</th>
         </tr>
     </thead>
     <tbody role="rowgroup">
@@ -27,10 +27,10 @@
         {% set url_name = skill.dir_name | urlencode %}
         {% set row_id = "skill-" ~ loop.index %}
         <tr role="row" id="{{ row_id }}">
-            <td role="cell" data-label="Name">
+            <td role="cell" data-label="Name" style="white-space:nowrap;">
                 <a href="/skills/{{ url_name }}">{{ skill.name }}</a>
             </td>
-            <td role="cell" data-label="Description">{{ skill.description | truncate(80) }}</td>
+            <td role="cell" data-label="Description">{{ skill.description | truncate(120) }}</td>
             <td role="cell" data-label="Type">
                 <span class="pf-v6-c-label {% if skill.type == 'built-in' %}pf-m-blue{% else %}pf-m-green{% endif %}">
                     <span class="pf-v6-c-label__content">

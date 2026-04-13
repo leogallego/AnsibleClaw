@@ -1361,66 +1361,70 @@ async def api_aap_dashboard():
     """Aggregated data for the AAP dashboard: resource counts, JT list, UI URLs."""
     import concurrent.futures
 
-    try:
-        client = _get_aap_client()
-    except Exception as exc:
-        return {"error": str(exc)}
-
-    def _count(method):
+    def _do_dashboard():
         try:
-            return len(method())
-        except Exception:
-            return 0
+            client = _get_aap_client()
+        except Exception as exc:
+            return {"error": str(exc)}
 
-    def _jt_list():
-        try:
-            raw = client.list_job_templates()
-            prefix = (AAPSettings.get("job_template_prefix") or "").strip().lower()
-            items = []
-            for jt in raw:
-                items.append({
-                    "id": jt["id"],
-                    "name": jt.get("name", ""),
-                    "project_name": jt.get("summary_fields", {}).get("project", {}).get("name", ""),
-                    "status": jt.get("status", ""),
-                    "url": client.ui_url("job_template", jt["id"]),
-                    "is_claw": bool(prefix and jt.get("name", "").lower().startswith(prefix)),
-                })
-            return items
-        except Exception:
-            return []
+        def _count(method):
+            try:
+                return len(method())
+            except Exception:
+                return 0
 
-    def _project_list():
-        try:
-            raw = client.list_projects()
-            return [
-                {
-                    "id": p["id"],
-                    "name": p.get("name", ""),
-                    "scm_url": p.get("scm_url", ""),
-                    "status": p.get("status", ""),
-                    "url": client.ui_url("project", p["id"]),
-                }
-                for p in raw
-            ]
-        except Exception:
-            return []
+        def _jt_list():
+            try:
+                raw = client.list_job_templates()
+                prefix = (AAPSettings.get("job_template_prefix") or "").strip().lower()
+                items = []
+                for jt in raw:
+                    items.append({
+                        "id": jt["id"],
+                        "name": jt.get("name", ""),
+                        "project_name": jt.get("summary_fields", {}).get("project", {}).get("name", ""),
+                        "status": jt.get("status", ""),
+                        "url": client.ui_url("job_template", jt["id"]),
+                        "is_claw": bool(prefix and jt.get("name", "").lower().startswith(prefix)),
+                    })
+                return items
+            except Exception:
+                return []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-        fut_jts = pool.submit(_jt_list)
-        fut_projs = pool.submit(_project_list)
-        fut_inv = pool.submit(_count, client.list_inventories)
-        fut_ee = pool.submit(_count, client.list_execution_environments)
-        fut_cred = pool.submit(_count, client.list_credentials)
+        def _project_list():
+            try:
+                raw = client.list_projects()
+                return [
+                    {
+                        "id": p["id"],
+                        "name": p.get("name", ""),
+                        "scm_url": p.get("scm_url", ""),
+                        "status": p.get("status", ""),
+                        "url": client.ui_url("project", p["id"]),
+                    }
+                    for p in raw
+                ]
+            except Exception:
+                return []
 
-    return {
-        "job_templates": fut_jts.result(),
-        "projects": fut_projs.result(),
-        "inventory_count": fut_inv.result(),
-        "ee_count": fut_ee.result(),
-        "credential_count": fut_cred.result(),
-        "base_url": AAPSettings.get("url").rstrip("/"),
-    }
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            fut_jts = pool.submit(_jt_list)
+            fut_projs = pool.submit(_project_list)
+            fut_inv = pool.submit(_count, client.list_inventories)
+            fut_ee = pool.submit(_count, client.list_execution_environments)
+            fut_cred = pool.submit(_count, client.list_credentials)
+
+        return {
+            "job_templates": fut_jts.result(),
+            "projects": fut_projs.result(),
+            "inventory_count": fut_inv.result(),
+            "ee_count": fut_ee.result(),
+            "credential_count": fut_cred.result(),
+            "base_url": AAPSettings.get("url").rstrip("/"),
+        }
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _do_dashboard)
 
 
 @app.get("/aap", response_class=HTMLResponse)
@@ -1627,59 +1631,50 @@ def _invalidate_aap_client():
     _invalidate_aap_ping_cache()
 
 
-@app.get("/api/aap/organizations")
-async def api_aap_organizations():
+def _aap_list_resource_sync(list_method, default_key):
+    """Fetch a single AAP resource list. Blocking — call from executor."""
     try:
         client = _get_aap_client()
-        resources = client.list_organizations()
+        resources = list_method(client)
         items = [{"id": r["id"], "name": r["name"]} for r in resources]
-        return {"items": items, "default": AAPSettings.get("default_organization")}
+        return {"items": items, "default": AAPSettings.get(default_key)}
     except Exception as exc:
         return {"items": [], "error": str(exc)}
+
+
+@app.get("/api/aap/organizations")
+async def api_aap_organizations():
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _aap_list_resource_sync, lambda c: c.list_organizations(), "default_organization")
 
 
 @app.get("/api/aap/projects")
 async def api_aap_projects():
-    try:
-        client = _get_aap_client()
-        resources = client.list_projects()
-        items = [{"id": r["id"], "name": r["name"]} for r in resources]
-        return {"items": items, "default": AAPSettings.get("default_project")}
-    except Exception as exc:
-        return {"items": [], "error": str(exc)}
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _aap_list_resource_sync, lambda c: c.list_projects(), "default_project")
 
 
 @app.get("/api/aap/execution-environments")
 async def api_aap_ees():
-    try:
-        client = _get_aap_client()
-        resources = client.list_execution_environments()
-        items = [{"id": r["id"], "name": r["name"]} for r in resources]
-        return {"items": items, "default": AAPSettings.get("default_ee")}
-    except Exception as exc:
-        return {"items": [], "error": str(exc)}
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _aap_list_resource_sync, lambda c: c.list_execution_environments(), "default_ee")
 
 
 @app.get("/api/aap/inventories")
 async def api_aap_inventories():
-    try:
-        client = _get_aap_client()
-        resources = client.list_inventories()
-        items = [{"id": r["id"], "name": r["name"]} for r in resources]
-        return {"items": items, "default": AAPSettings.get("default_inventory")}
-    except Exception as exc:
-        return {"items": [], "error": str(exc)}
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _aap_list_resource_sync, lambda c: c.list_inventories(), "default_inventory")
 
 
 @app.get("/api/aap/credentials")
 async def api_aap_credentials():
-    try:
-        client = _get_aap_client()
-        resources = client.list_credentials()
-        items = [{"id": r["id"], "name": r["name"]} for r in resources]
-        return {"items": items, "default": AAPSettings.get("default_credential")}
-    except Exception as exc:
-        return {"items": [], "error": str(exc)}
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _aap_list_resource_sync, lambda c: c.list_credentials(), "default_credential")
 
 
 @app.get("/api/aap/resources")
@@ -1687,60 +1682,69 @@ async def api_aap_all_resources():
     """Fetch projects, EEs, inventories, credentials, and organizations in one call.
 
     Uses a thread-pool so the five AAP API calls run concurrently, and the
-    cached AAPClient avoids redundant prefix detection.
+    cached AAPClient avoids redundant prefix detection.  Runs entirely off
+    the event loop via ``run_in_executor``.
     """
     import concurrent.futures
 
-    try:
-        client = _get_aap_client()
-    except Exception as exc:
-        return {k: {"items": [], "error": str(exc)} for k in (
-            "projects", "execution_environments", "inventories",
-            "credentials", "organizations",
-        )}
-
-    def _fetch(method, default_key, extra_fields=()):
+    def _do_resources():
         try:
-            raw = method()
-            items = []
-            for r in raw:
-                item = {"id": r["id"], "name": r["name"]}
-                for f in extra_fields:
-                    item[f] = r.get(f, "")
-                items.append(item)
-            return {"items": items, "default": AAPSettings.get(default_key)}
+            client = _get_aap_client()
         except Exception as exc:
-            return {"items": [], "error": str(exc)}
+            return {k: {"items": [], "error": str(exc)} for k in (
+                "projects", "execution_environments", "inventories",
+                "credentials", "organizations",
+            )}
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-        fut_proj = pool.submit(_fetch, client.list_projects, "default_project", ("scm_url",))
-        fut_ee = pool.submit(_fetch, client.list_execution_environments, "default_ee")
-        fut_inv = pool.submit(_fetch, client.list_inventories, "default_inventory")
-        fut_cred = pool.submit(_fetch, client.list_credentials, "default_credential")
-        fut_org = pool.submit(_fetch, client.list_organizations, "default_organization")
+        def _fetch(method, default_key, extra_fields=()):
+            try:
+                raw = method()
+                items = []
+                for r in raw:
+                    item = {"id": r["id"], "name": r["name"]}
+                    for f in extra_fields:
+                        item[f] = r.get(f, "")
+                    items.append(item)
+                return {"items": items, "default": AAPSettings.get(default_key)}
+            except Exception as exc:
+                return {"items": [], "error": str(exc)}
 
-    return {
-        "projects": fut_proj.result(),
-        "execution_environments": fut_ee.result(),
-        "inventories": fut_inv.result(),
-        "credentials": fut_cred.result(),
-        "organizations": fut_org.result(),
-    }
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            fut_proj = pool.submit(_fetch, client.list_projects, "default_project", ("scm_url",))
+            fut_ee = pool.submit(_fetch, client.list_execution_environments, "default_ee")
+            fut_inv = pool.submit(_fetch, client.list_inventories, "default_inventory")
+            fut_cred = pool.submit(_fetch, client.list_credentials, "default_credential")
+            fut_org = pool.submit(_fetch, client.list_organizations, "default_organization")
+
+        return {
+            "projects": fut_proj.result(),
+            "execution_environments": fut_ee.result(),
+            "inventories": fut_inv.result(),
+            "credentials": fut_cred.result(),
+            "organizations": fut_org.result(),
+        }
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _do_resources)
 
 
 @app.get("/api/aap/projects-list")
 async def api_aap_projects_list():
     """Lightweight endpoint returning only the projects list (id, name, scm_url)."""
-    try:
-        client = _get_aap_client()
-        raw = client.list_projects()
-        items = [
-            {"id": r["id"], "name": r["name"], "scm_url": r.get("scm_url", "")}
-            for r in raw
-        ]
-        return {"items": items}
-    except Exception as exc:
-        return {"items": [], "error": str(exc)}
+    def _fetch():
+        try:
+            client = _get_aap_client()
+            raw = client.list_projects()
+            items = [
+                {"id": r["id"], "name": r["name"], "scm_url": r.get("scm_url", "")}
+                for r in raw
+            ]
+            return {"items": items}
+        except Exception as exc:
+            return {"items": [], "error": str(exc)}
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _fetch)
 
 
 @app.get("/api/aap/project-context/{project_id}")
@@ -1748,81 +1752,90 @@ async def api_aap_project_context(project_id: int):
     """Fetch project details plus org/inventory/credential/EE lists in one call.
 
     Returns the project's scm_url, owning organisation name, and the resolved
-    default-EE name so the frontend can auto-select them.
+    default-EE name so the frontend can auto-select them.  Runs entirely off
+    the event loop via ``run_in_executor``.
     """
     import concurrent.futures
 
-    try:
-        client = _get_aap_client()
-    except Exception as exc:
-        return {"error": str(exc)}
-
-    try:
-        project = client.get_project(project_id)
-    except Exception as exc:
-        return {"error": f"Failed to fetch project: {exc}"}
-
-    def _fetch_list(method):
+    def _do_context():
         try:
-            raw = method()
-            return {"items": [{"id": r["id"], "name": r["name"]} for r in raw]}
+            client = _get_aap_client()
         except Exception as exc:
-            return {"items": [], "error": str(exc)}
+            return {"error": str(exc)}
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        fut_org = pool.submit(_fetch_list, client.list_organizations)
-        fut_inv = pool.submit(_fetch_list, client.list_inventories)
-        fut_cred = pool.submit(_fetch_list, client.list_credentials)
-        fut_ee = pool.submit(_fetch_list, client.list_execution_environments)
+        try:
+            project = client.get_project(project_id)
+        except Exception as exc:
+            return {"error": f"Failed to fetch project: {exc}"}
 
-    org_id = project.get("organization")
-    org_name = ""
-    org_result = fut_org.result()
-    for org in org_result.get("items", []):
-        if org["id"] == org_id:
-            org_name = org["name"]
-            break
+        def _fetch_list(method):
+            try:
+                raw = method()
+                return {"items": [{"id": r["id"], "name": r["name"]} for r in raw]}
+            except Exception as exc:
+                return {"items": [], "error": str(exc)}
 
-    ee_id = project.get("default_environment")
-    ee_name = ""
-    ee_result = fut_ee.result()
-    if ee_id:
-        for ee in ee_result.get("items", []):
-            if ee["id"] == ee_id:
-                ee_name = ee["name"]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            fut_org = pool.submit(_fetch_list, client.list_organizations)
+            fut_inv = pool.submit(_fetch_list, client.list_inventories)
+            fut_cred = pool.submit(_fetch_list, client.list_credentials)
+            fut_ee = pool.submit(_fetch_list, client.list_execution_environments)
+
+        org_id = project.get("organization")
+        org_name = ""
+        org_result = fut_org.result()
+        for org in org_result.get("items", []):
+            if org["id"] == org_id:
+                org_name = org["name"]
                 break
 
-    return {
-        "project": {
-            "id": project["id"],
-            "name": project["name"],
-            "scm_url": project.get("scm_url", ""),
-            "organization": org_id,
-            "default_environment": ee_id,
-        },
-        "organization_name": org_name,
-        "ee_name": ee_name,
-        "organizations": org_result,
-        "inventories": fut_inv.result(),
-        "credentials": fut_cred.result(),
-        "execution_environments": ee_result,
-    }
+        ee_id = project.get("default_environment")
+        ee_name = ""
+        ee_result = fut_ee.result()
+        if ee_id:
+            for ee in ee_result.get("items", []):
+                if ee["id"] == ee_id:
+                    ee_name = ee["name"]
+                    break
+
+        return {
+            "project": {
+                "id": project["id"],
+                "name": project["name"],
+                "scm_url": project.get("scm_url", ""),
+                "organization": org_id,
+                "default_environment": ee_id,
+            },
+            "organization_name": org_name,
+            "ee_name": ee_name,
+            "organizations": org_result,
+            "inventories": fut_inv.result(),
+            "credentials": fut_cred.result(),
+            "execution_environments": ee_result,
+        }
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _do_context)
 
 
 @app.get("/api/aap/project-playbooks/{project_id}")
 async def api_aap_project_playbooks(project_id: int):
     """List playbooks AAP sees for a given project (diagnostic helper)."""
-    try:
-        client = _get_aap_client()
-        playbooks = client.list_project_playbooks(project_id)
-        project_info = client.get_project(project_id)
-        return {
-            "project_id": project_id,
-            "scm_url": project_info.get("scm_url", ""),
-            "playbooks": playbooks,
-        }
-    except Exception as exc:
-        return {"error": str(exc)}
+    def _fetch():
+        try:
+            client = _get_aap_client()
+            playbooks = client.list_project_playbooks(project_id)
+            project_info = client.get_project(project_id)
+            return {
+                "project_id": project_id,
+                "scm_url": project_info.get("scm_url", ""),
+                "playbooks": playbooks,
+            }
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _fetch)
 
 
 def _step(msg: str) -> str:
