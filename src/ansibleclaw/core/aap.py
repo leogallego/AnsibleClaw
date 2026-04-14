@@ -306,7 +306,7 @@ class AAPClient:
     # prefix.
     _GATEWAY_UI_PATHS: dict[str, str] = {
         "project": "/execution/projects/{id}/details",
-        "job_template": "/execution/templates/job_template/{id}/details",
+        "job_template": "/execution/templates/job-template/{id}/details",
         "inventory": "/infrastructure/inventories/{id}/details",
         "credential": "/access/credentials/{id}/details",
         "organization": "/access/organizations/{id}/details",
