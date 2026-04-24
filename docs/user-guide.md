@@ -16,6 +16,7 @@ This guide covers everything you need to install, configure, and use AnsibleClaw
 - [Web Dashboard](#web-dashboard)
   - [Explore: Modules](#explore-modules)
   - [Explore: Collections](#explore-collections)
+  - [Explore: Starter Pack](#explore-starter-pack)
   - [Build: Generate](#build-generate)
   - [Build: Compose](#build-compose)
   - [Skills](#skills)
@@ -411,11 +412,52 @@ This is the home page. It shows all skills (built-in + generated) in a table wit
 
 Clicking a skill name opens the detail view showing the SKILL.md content. From the detail page, you can also **Deploy to AAP** (see [AAP Integration](#deploying-skills-to-aap-via-the-web-dashboard)).
 
+### Explore: Starter Pack
+
+**URL:** `/starter-pack` | **Sidebar:** Explore > Starter Pack
+
+Upload an Ansible starter pack archive (`.zip`, `.tar.gz`, `.tgz`) to browse its use cases, preview playbooks, and generate a **router skill** that directs AI agents to the appropriate playbook for a given task.
+
+1. **Upload** -- Drag-and-drop or browse for a starter pack archive
+2. **Browse** -- View use cases organized by category, expand each to preview the playbook and description
+3. **Generate** -- Create a router skill that teaches an AI agent about all use cases in the pack, with a configurable skill name and output target (Project, Cursor, Claude, Gemini, or custom path)
+
 ### Deploy: Dev/Test
 
 **URL:** `/inventory` | **Sidebar:** Deploy > Dev/Test
 
-Manage your local Ansible inventory for development and testing. View and edit host groups, set connection variables, and verify inventory structure before deploying to production.
+An integrated environment for editing, AI-refining, and running Ansible playbooks locally.
+
+**Inventory Editor** (collapsible) -- Edit the local inventory file (`inventory/hosts.yml` by default, override with `ANSIBLECLAW_INVENTORY_FILE`). Changes are saved to disk immediately.
+
+**Playbook Selector** -- Browse all playbooks from generated and built-in skills. Click a playbook to load it in the inline editor. The editor supports editing, saving back to disk, and reloading from disk.
+
+**AI Refine** -- Describe what the playbook should do in natural language (e.g., "install nginx on webservers and open port 80") and click **AI Refine**. The AI rewrites the playbook based on your intent. Requires an OpenAI-compatible endpoint to be configured (see below).
+
+**AI Endpoint Configuration** -- Configure the AI backend directly from the page:
+
+- **Endpoint** -- Any OpenAI-compatible API base URL (vLLM, Ollama, OpenAI, LiteLLM, etc.). The `/v1/chat/completions` path is appended automatically.
+- **Retrieve** -- Click to fetch the list of available models from the endpoint. If the endpoint requires authentication, you'll be prompted to enter an API key.
+- **Model** -- Select from the retrieved model list or type a model name manually.
+- **API Key** -- Required for authenticated endpoints (e.g., OpenAI, LiteLLM). Not needed for local Ollama.
+- **Save** -- Persists settings to `.ansibleclaw.yml` under the `ai:` section.
+
+Common endpoint examples:
+
+| Provider | Endpoint |
+|----------|----------|
+| Ollama (local) | `http://localhost:11434/v1` |
+| vLLM (local) | `http://localhost:8000/v1` |
+| OpenAI | `https://api.openai.com/v1` |
+| LiteLLM proxy | `http://your-proxy:4000/v1` |
+
+**Run Panel** -- Execute the selected playbook with `ansible-playbook`:
+
+- **Dry Run** (`--check --diff`) -- Preview changes without applying them (default)
+- **Apply** -- Execute for real (with a confirmation prompt)
+- **Extra args** -- Pass additional flags (e.g., `--limit`, `--tags`, `-vvv`)
+- **Stop** -- Cancel a running playbook
+- Streaming output appears in the terminal panel below
 
 ### Deploy: Production (AAP)
 
@@ -883,6 +925,25 @@ AnsibleClaw reads configuration from environment variables with sensible default
 | `ANSIBLECLAW_SKILLS_DIR` | `./skills/` (CWD) | Where generated skills are written |
 | `ANSIBLECLAW_COLLECTIONS_PATH` | *(empty)* | Custom path for Ansible collections (sets `ANSIBLE_COLLECTIONS_PATH`) |
 | `ANSIBLECLAW_GALAXY_URL` | `https://galaxy.ansible.com` | Galaxy server URL for fallback doc resolution |
+
+### AI Refine (Dev/Test)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ANSIBLECLAW_AI_ENDPOINT` | *(empty)* | OpenAI-compatible API base URL (e.g., `http://localhost:11434/v1`) |
+| `ANSIBLECLAW_AI_MODEL` | *(empty)* | Model name (e.g., `llama3`, `gpt-4o`) |
+| `ANSIBLECLAW_AI_API_KEY` | *(empty)* | API key for authenticated endpoints |
+
+These can also be stored in `.ansibleclaw.yml` under the `ai:` section:
+
+```yaml
+ai:
+  endpoint: http://localhost:11434/v1
+  model: llama3
+  api_key: sk-...   # optional
+```
+
+Environment variables override file values. Settings can also be configured from the Dev/Test page in the web dashboard.
 
 ### AAP Controller
 

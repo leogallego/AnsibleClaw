@@ -257,6 +257,9 @@ flowchart LR
   APP --> M["Search modules\nHTMX partials"]
   APP --> G["Generate + preview\nsame parser + templates as CLI"]
   APP --> C["Collections manager\ngalaxy install / list"]
+  APP --> SP["Starter Pack\nupload, browse use cases,\ngenerate router skill"]
+  APP --> DT["Dev/Test\nedit playbooks, AI refine,\nrun ansible-playbook"]
+  DT --> AI["AI Refine\nOpenAI-compatible endpoint\nAISettings config"]
   APP --> A["AAP settings + ping\nAAPSettings"]
   APP --> D{"AAP URL + token set?"}
   D -->|yes| JT["Deploy to AAP:\ncreate Job Templates\nvia Controller API"]

@@ -16,13 +16,13 @@ Start with `ansibleclaw ui` and open `http://localhost:8600`. The dashboard feat
 
 ![AnsibleClaw Web Dashboard](docs/AnsibleClaw-ui.png)
 
-**Explore** -- Browse available Ansible **Modules** (`/search`) by keyword and namespace, view parameters and examples inline, and jump to the generator. Manage installed **Collections** (`/collections`) with one-click install, uninstall, and batch skill generation.
+**Explore** -- Browse available Ansible **Modules** (`/search`) by keyword and namespace, view parameters and examples inline, and jump to the generator. Manage installed **Collections** (`/collections`) with one-click install, uninstall, and batch skill generation. Upload a **Starter Pack** (`/starter-pack`) archive to browse use cases, preview playbooks, and generate a router skill.
 
 **Build** -- **Generate** (`/generate`) single-module skill packages with live SKILL.md preview and multi-target output (project, Cursor, Claude, Gemini, custom path). **Compose** (`/compose`) multi-module composite skill packages that combine several Ansible modules into a single use-case-driven skill.
 
 **Skills** -- View all skills (`/skills`) (built-in + generated), read SKILL.md content, download as ZIP, install/uninstall to Cursor, Claude, or Gemini CLI with one click, and deploy to AAP.
 
-**Deploy** -- **Dev/Test** (`/inventory`) for local inventory management. **Production** (`/aap`) for AAP Controller integration: dashboard with project and job template status, connection testing, and deep links to AAP UI.
+**Deploy** -- **Dev/Test** (`/inventory`) with a playbook selector, inline editor, AI-powered refinement (describe intent, get a rewritten playbook via any OpenAI-compatible endpoint), and one-click `ansible-playbook` execution in dry-run or apply mode. **Production** (`/aap`) for AAP Controller integration: dashboard with project and job template status, connection testing, and deep links to AAP UI.
 
 **Agents** -- **Gemini CLI** (`/agents/gemini`) launches an interactive browser-based terminal running Google's Gemini CLI agent via ttyd, with configurable working directory and session management.
 
@@ -257,8 +257,11 @@ Compatible with both AWX (free upstream) and Red Hat AAP Controller (commercial)
 | `ANSIBLECLAW_SKILLS_DIR` | `./skills/` (CWD) | Where generated skills are written |
 | `ANSIBLECLAW_GALAXY_URL` | `https://galaxy.ansible.com` | Galaxy API base URL for remote doc fallback |
 | `ANSIBLECLAW_COLLECTIONS_PATH` | *(empty)* | Optional collections path (sets `ANSIBLE_COLLECTIONS_PATH` when set) |
+| `ANSIBLECLAW_AI_ENDPOINT` | *(empty)* | OpenAI-compatible API base URL for AI Refine (e.g., `http://localhost:11434/v1`) |
+| `ANSIBLECLAW_AI_MODEL` | *(empty)* | Model name for AI Refine (e.g., `llama3`, `gpt-4o`) |
+| `ANSIBLECLAW_AI_API_KEY` | *(empty)* | API key for authenticated AI endpoints |
 
-AAP-related defaults can also be stored in `.ansibleclaw.yml` (under `aap:`); environment variables override file values. See the [user guide](docs/user-guide.md#configuration) for the full list.
+AAP-related defaults can also be stored in `.ansibleclaw.yml` (under `aap:`); AI settings under `ai:`. Environment variables override file values. See the [user guide](docs/user-guide.md#configuration) for the full list.
 
 ## Project Structure
 
@@ -283,9 +286,9 @@ AnsibleClaw/
 │   │   ├── aap_run.py.j2      # AAP Controller API helper template
 │   │   └── playbook.yml.j2    # Ansible playbook template
 │   └── web/                   # Web dashboard (FastAPI + HTMX + PatternFly v6)
-│       ├── app.py             # Routes, AAP dashboard, Gemini CLI terminal
+│       ├── app.py             # Routes, AAP dashboard, AI refine, Gemini CLI
 │       ├── templates/         # Jinja2 HTML (sidebar layout, per-page views)
-│       └── static/            # CSS (dark/light themes, sidebar, terminal)
+│       └── static/            # CSS, PatternFly, htmx.js (locally served)
 ├── skills/                    # Generated skills (user output, CWD-based)
 ├── tests/                     # Test suite
 ├── docs/                      # Documentation
