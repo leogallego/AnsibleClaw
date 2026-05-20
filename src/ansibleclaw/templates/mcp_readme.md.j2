@@ -1,0 +1,63 @@
+# {{ namespace }}.{{ collection_name }}
+
+Ansible collection generated from MCP server tools by [AnsibleClaw](https://github.com/leogallego/ansibleclawed).
+
+Each module wraps an MCP tool with typed `argument_spec` validation and full documentation,
+delegating to `ansible.mcp.run_tool` at runtime.
+
+## Requirements
+
+- `ansible-core` >= 2.16.0
+- `ansible.mcp` collection installed
+- MCP server accessible via `ansible.mcp.mcp` connection
+
+## Installation
+
+```bash
+ansible-galaxy collection install {{ namespace }}.{{ collection_name }}
+```
+
+## Usage
+
+Configure your inventory to use the MCP connection:
+
+```yaml
+# inventory/hosts.yml
+all:
+  hosts:
+    mcp_server:
+      ansible_connection: ansible.mcp.mcp
+      ansible_mcp_server_name: "your_server_name"
+```
+
+Then use any module in your playbooks:
+
+```yaml
+---
+- name: Example playbook
+  hosts: mcp_server
+  gather_facts: false
+  tasks:
+{% if modules %}
+    - name: {{ modules[0].short_description }}
+      {{ namespace }}.{{ collection_name }}.{{ modules[0].module_name }}:
+{% for p in modules[0].params %}
+{% if p.required %}
+        {{ p.name }}: "CHANGEME"
+{% endif %}
+{% endfor %}
+      register: result
+{% endif %}
+```
+
+## Included modules
+
+| Module | Description |
+|--------|-------------|
+{% for m in modules %}
+| `{{ m.module_name }}` | {{ m.short_description }} |
+{% endfor %}
+
+## License
+
+GNU General Public License v3.0+

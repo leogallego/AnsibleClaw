@@ -4,6 +4,7 @@ Subcommands:
     generate  -- Generate a skill package for an Ansible module
     compose   -- Generate a composite skill from multiple modules
     search    -- Search available Ansible modules by keyword
+    from-mcp  -- Generate an Ansible collection from MCP server tools
     uninstall -- Remove a skill from an agent platform install directory
     ui        -- Launch the web management dashboard
 """
@@ -642,6 +643,46 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
     print(f"Removed {target}")
 
 
+def cmd_from_mcp(args: argparse.Namespace) -> None:
+    """Generate an Ansible collection from MCP server tool definitions."""
+    from ansibleclaw.core.mcp_schema import (
+        McpSchemaError,
+        load_tools_from_file,
+        load_tools_from_server,
+    )
+    from ansibleclaw.core.mcp_collection import write_mcp_collection
+
+    if not args.server and not args.schema:
+        print("Error: either --server or --schema is required.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        if args.server:
+            print(f"Querying MCP server: {args.server}")
+            tools = load_tools_from_server(args.server)
+        else:
+            print(f"Reading schema from: {args.schema}")
+            tools = load_tools_from_file(Path(args.schema))
+    except McpSchemaError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Found {len(tools)} MCP tool(s). Generating collection...")
+
+    output_dir = Path(args.output) / f"{args.namespace}.{args.name}"
+    modules = write_mcp_collection(
+        output_dir=output_dir,
+        namespace=args.namespace,
+        name=args.name,
+        version=args.col_version,
+        tools=tools,
+    )
+
+    print(f"\nCollection generated at {output_dir}/")
+    print(f"  Modules: {len(modules)}")
+    print(f"  Install: ansible-galaxy collection install {output_dir}")
+
+
 def cmd_ui(args: argparse.Namespace) -> None:
     """Launch the web management dashboard."""
     try:
@@ -745,6 +786,28 @@ def main() -> None:
     search_parser.add_argument("--namespace", "-n", help="Filter by namespace (e.g., community.docker)")
     search_parser.add_argument("--detail", metavar="MODULE", help="Show full docs for a specific module")
     search_parser.set_defaults(func=cmd_search)
+
+    # --- from-mcp ---
+    mcp_parser = subparsers.add_parser(
+        "from-mcp",
+        help="Generate an Ansible collection from MCP server tools.",
+    )
+    mcp_parser.add_argument(
+        "--server", metavar="COMMAND",
+        help="MCP server command for stdio transport (e.g., 'npx @github/mcp-server')",
+    )
+    mcp_parser.add_argument(
+        "--schema", metavar="FILE",
+        help="Path to a JSON file containing MCP tools/list output",
+    )
+    mcp_parser.add_argument("--namespace", required=True, help="Collection namespace (e.g., 'community')")
+    mcp_parser.add_argument("--name", required=True, help="Collection name (e.g., 'github_mcp')")
+    mcp_parser.add_argument("--output", metavar="DIR", default=".", help="Output directory (default: current dir)")
+    mcp_parser.add_argument(
+        "--version", dest="col_version", default="1.0.0",
+        help="Collection version (default: 1.0.0)",
+    )
+    mcp_parser.set_defaults(func=cmd_from_mcp)
 
     # --- uninstall ---
     uninst_parser = subparsers.add_parser(
