@@ -2191,24 +2191,31 @@ def _start_ttyd_for_gemini(cwd: str | None = None) -> dict:
         )
         _gemini_ttyd_port = port
 
-        time.sleep(1.5)
+        max_wait = 10.0
+        poll_interval = 0.3
+        waited = 0.0
+        while waited < max_wait:
+            time.sleep(poll_interval)
+            waited += poll_interval
 
-        if _gemini_ttyd_process.poll() is not None:
-            exit_code = _gemini_ttyd_process.returncode
-            _, stderr_output = _gemini_ttyd_process.communicate(timeout=1)
-            stderr_str = stderr_output.decode("utf-8", errors="replace") if stderr_output else ""
-            _gemini_logger.error("ttyd exited with code %s: %s", exit_code, stderr_str)
-            _gemini_ttyd_process = None
-            _gemini_ttyd_port = None
-            return {"success": False, "error": f"ttyd exited with code {exit_code}: {stderr_str}"}
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            if sock.connect_ex(("127.0.0.1", port)) != 0:
-                _gemini_logger.error("ttyd not listening on port %s", port)
-                _gemini_ttyd_process.terminate()
+            if _gemini_ttyd_process.poll() is not None:
+                exit_code = _gemini_ttyd_process.returncode
+                _, stderr_output = _gemini_ttyd_process.communicate(timeout=1)
+                stderr_str = stderr_output.decode("utf-8", errors="replace") if stderr_output else ""
+                _gemini_logger.error("ttyd exited with code %s: %s", exit_code, stderr_str)
                 _gemini_ttyd_process = None
                 _gemini_ttyd_port = None
-                return {"success": False, "error": f"ttyd not listening on port {port}"}
+                return {"success": False, "error": f"ttyd exited with code {exit_code}: {stderr_str}"}
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                if sock.connect_ex(("127.0.0.1", port)) == 0:
+                    break
+        else:
+            _gemini_logger.error("ttyd not listening on port %s after %.1fs", port, max_wait)
+            _gemini_ttyd_process.terminate()
+            _gemini_ttyd_process = None
+            _gemini_ttyd_port = None
+            return {"success": False, "error": f"ttyd not listening on port {port} after {max_wait}s"}
 
         _gemini_logger.info("ttyd started on port %s, pid %s", port, _gemini_ttyd_process.pid)
         return {
@@ -2286,7 +2293,7 @@ async def api_gemini_stop_terminal():
 
 @app.get("/agents/gemini")
 async def agents_gemini_page(request: Request, cwd: str = Query("")):
-    default_cwd = cwd.strip() if cwd.strip() else "/Users/micyang/agent"
+    default_cwd = cwd.strip() if cwd.strip() else str(Path.cwd())
     return TEMPLATES.TemplateResponse(
         request,
         "agents_gemini.html",
